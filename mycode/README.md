@@ -1,9 +1,4 @@
-```powershell
-. /scratch/jq77/nk8155/tft_env/bin/activate
-module load python3/3.9.2
-/scratch/mi23/nuwan/Japan/EDM_Error_Compensate/mycode
 
-```
 
 
 ## Run training

@@ -1,8 +1,30 @@
-"""Compensation model training with early stopping and Pattern 3 inputs.
+"""Cross-day compensation model: Leave-One-Day-Out evaluation.
 
-Train : 1st_Comp + 2nd_Comp + 3rd_Base
-Val   : 4th_Valid
-Test  : 5th_Comp
+Deployment scenario
+-------------------
+The model is trained on one set of recording days and used on a *different*
+day. Days are therefore never mixed inside a split. Each fold trains on whole
+sessions, validates on one held-out session, and tests on another held-out
+session.
+
+Why this differs from the previous version
+------------------------------------------
+1. Leave-One-Day-Out CV       : 5 honest cross-day estimates instead of 1.
+2. Per-recording sEMG scaling : each file is normalised by its own sEMG
+                                statistics. Leakage-free, because sEMG is
+                                available at deployment time.
+3. Per-session force gain     : optional short calibration segment at the start
+                                of each recording (``--calib-seconds``). This
+                                mirrors the real protocol of calibrating when
+                                electrodes are fitted. The calibration window is
+                                excluded from all reported metrics.
+4. Base model with dynamics   : TANH -> LPF restored, so the model can represent
+                                the hysteresis loops visible in Force-vs-sEMG.
+5. Scale-relative target      : the compensator predicts error normalised by the
+                                recording's own base-output scale, so no
+                                training-day offset is baked into predictions.
+6. Per-fold base fitting      : the base model is refitted on each fold's
+                                training sessions only.
 """
 
 from pathlib import Path
@@ -23,6 +45,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from scipy.optimize import least_squares
+from scipy.signal import lfilter
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, TensorDataset
@@ -32,7 +55,6 @@ from torch.utils.data import DataLoader, TensorDataset
 # =========================================================
 SEED = 42
 Ts = 0.0005
-PATTERN = 3
 
 SEQ = 100
 WINDOW_STRIDE = 5  # use 1 for all windows (slow on CPU)
@@ -58,6 +80,13 @@ XCOL = "Cali_LPF_PASF_sEMG"
 YCOL = "Force"
 TCOL = "Time"
 
+# Base model LPF cutoff bounds (Hz).
+FC_MIN = 1.0
+FC_MAX = 200.0
+
+# Recording sessions, in chronological order. Splits never mix these.
+SESSIONS = ["1st_Comp", "2nd_Comp", "3rd_Base", "4th_Valid", "5th_Comp"]
+
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "Data"
 OUT = Path(__file__).resolve().parent / "Estimation"
@@ -69,23 +98,15 @@ elif torch.backends.mps.is_available():
 else:
     DEVICE = "cpu"
 
-random.seed(SEED)
-np.random.seed(SEED)
-torch.manual_seed(SEED)
+
+def set_seed(seed=SEED):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
 
-def csv_files(folder):
-    return sorted((DATA / folder).glob("Data*.csv"))
-
-
-TRAIN_FILES = (
-    csv_files("1st_Comp")
-    + csv_files("2nd_Comp")
-    + csv_files("3rd_Base")
-)
-VAL_FILES = csv_files("4th_Valid")
-TEST_FILES = csv_files("5th_Comp")
-BASE_FILES = csv_files("3rd_Base")
+def session_files(name):
+    return sorted((DATA / name).glob("Data*.csv"))
 
 
 # =========================================================
@@ -139,30 +160,230 @@ def load(path):
 def metrics(y, y_hat):
     mse = mean_squared_error(y, y_hat)
     return {
-        "MSE": mse,
+        "MSE": float(mse),
         "RMSE": float(np.sqrt(mse)),
-        "MAE": mean_absolute_error(y, y_hat),
-        "R2": r2_score(y, y_hat),
+        "MAE": float(mean_absolute_error(y, y_hat)),
+        "R2": float(r2_score(y, y_hat)),
     }
 
 
-def base_model(theta, x):
-    gain, slope = theta
-    return gain * np.tanh(slope * x)
+# =========================================================
+# Base model: TANH -> LPF
+#
+#   z(k) = gain * tanh(slope * x_n(k))
+#   G(s) = wc / (s + wc),  wc = 2*pi*fc      (bilinear discretisation)
+#
+# The LPF gives the model dynamics, so it can represent the hysteresis loops
+# seen in the Force-vs-sEMG plots. A static tanh cannot: it is single-valued.
+# =========================================================
+def lpf(x, fc):
+    K = 2.0 / Ts
+    fc = float(np.clip(fc, FC_MIN, FC_MAX))
+    wc = 2.0 * np.pi * fc
+    b0 = wc / (K + wc)
+    a1 = (wc - K) / (K + wc)
+    return lfilter([b0, b0], [1.0, a1], x)
 
 
-def features(x, y_base):
-    return np.column_stack([x, y_base])
+def base_model(theta, x_n, use_lpf=True):
+    if use_lpf:
+        gain, slope, fc = theta
+        return lpf(gain * np.tanh(slope * x_n), fc)
+    gain, slope = theta[0], theta[1]
+    return gain * np.tanh(slope * x_n)
 
 
-def windows(x, y):
+def semg_scale_for(x, q=99.0):
+    """Per-recording sEMG scale. Uses only the input signal -> no leakage."""
+    positive = x[x > 0]
+    if len(positive) == 0:
+        scale = float(np.max(np.abs(x)))
+        return scale if scale > 1e-9 else 1.0
+    scale = float(np.percentile(positive, q))
+    return scale if scale > 1e-9 else 1.0
+
+
+def fit_base_model(paths, use_lpf=True, max_nfev=600):
+    """Fit the base model on the given (training-only) recordings."""
+    data = []
+    for path in paths:
+        _, x, y = load(path)
+        data.append((x / semg_scale_for(x), y))
+
+    def residual(theta):
+        out = []
+        for x_n, y in data:
+            out.append(base_model(theta, x_n, use_lpf) - y)
+        return np.concatenate(out)
+
+    if use_lpf:
+        x0 = np.array([1.0, 1.0, 20.0])
+        lower = np.array([0.0, 0.0, FC_MIN])
+        upper = np.array([50.0, 50.0, FC_MAX])
+    else:
+        x0 = np.array([1.0, 1.0])
+        lower = np.array([0.0, 0.0])
+        upper = np.array([50.0, 50.0])
+
+    result = least_squares(
+        residual,
+        x0=x0,
+        bounds=(lower, upper),
+        method="trf",
+        x_scale="jac",
+        max_nfev=max_nfev,
+    )
+    return result.x.copy(), result
+
+
+GAIN_MIN, GAIN_MAX = 1e-3, 1e3
+ACTIVITY_FRACTION = 0.2  # of the recording's 95th-percentile base output
+
+
+def calibration_masks(y_base_raw, calib_seconds):
+    """Split a recording into a calibration segment and an evaluation segment.
+
+    The calibration segment collects the first ``calib_seconds`` worth of
+    *active* samples, where activity is detected from the base output - which
+    is derived from sEMG alone, so choosing the window never looks at force.
+    Keying off activity rather than wall-clock matters: several recordings sit
+    at rest for the first ten seconds, and a rest-only window makes the gain
+    fit noise-dominated and collapses it toward zero.
+
+    Everything up to the end of the calibration segment is excluded from
+    evaluation, so calibration force is never scored.
+    """
+    n = len(y_base_raw)
+    if calib_seconds <= 0:
+        return None, np.ones(n, dtype=bool)
+
+    magnitude = np.abs(y_base_raw)
+    threshold = ACTIVITY_FRACTION * float(np.percentile(magnitude, 95))
+    active_idx = np.flatnonzero(magnitude > threshold)
+
+    if len(active_idx) == 0:
+        return None, np.ones(n, dtype=bool)
+
+    # Contiguous window starting at the first detected contraction, so the
+    # calibration stays a short bounded segment rather than spanning the record.
+    start = int(active_idx[0])
+    requested = max(1, int(round(calib_seconds / Ts)))
+
+    # Always leave enough of the recording to evaluate on. Short recordings
+    # (the 15 s files) would otherwise be consumed entirely by the window.
+    for min_eval in (max(SEQ + 1, n // 4), SEQ + 1):
+        end = min(start + requested, n - min_eval)
+        if end > start:
+            break
+    else:
+        return None, np.ones(n, dtype=bool)
+
+    if end <= start:
+        return None, np.ones(n, dtype=bool)
+
+    calib_mask = np.zeros(n, dtype=bool)
+    calib_mask[start:end] = True
+
+    eval_mask = np.zeros(n, dtype=bool)
+    eval_mask[end:] = True
+
+    return calib_mask, eval_mask
+
+
+def estimate_session_gain(y, y_base_raw, calib_mask):
+    """Least-squares scalar gain from the calibration segment.
+
+    Mirrors a real deployment calibration: a brief reference contraction is
+    recorded when the electrodes are fitted, and its force is known. Returns
+    (gain, ok) where ok is False if the segment carried too little signal to
+    identify a gain.
+    """
+    if calib_mask is None or not calib_mask.any():
+        return 1.0, False
+
+    y_c = y[calib_mask]
+    yb_c = y_base_raw[calib_mask]
+
+    den = float(np.dot(yb_c, yb_c))
+    if den < 1e-12:
+        return 1.0, False
+
+    gain = float(np.dot(y_c, yb_c)) / den
+    if not np.isfinite(gain) or gain <= 0:
+        return 1.0, False
+
+    # A gain pinned at the clip bounds means the fit did not identify anything.
+    clipped = float(np.clip(gain, GAIN_MIN, GAIN_MAX))
+    return clipped, GAIN_MIN < clipped < GAIN_MAX
+
+
+def build_records(paths, theta, calib_seconds, use_lpf=True):
+    """Build per-recording arrays with per-session normalisation applied."""
+    records = []
+    for path in paths:
+        t, x, y = load(path)
+
+        semg_scale = semg_scale_for(x)
+        x_n = x / semg_scale
+        y_base_raw = base_model(theta, x_n, use_lpf)
+
+        calib_mask, eval_mask = calibration_masks(y_base_raw, calib_seconds)
+        gain, gain_ok = estimate_session_gain(y, y_base_raw, calib_mask)
+        y_base = gain * y_base_raw
+
+        if calib_seconds > 0 and not gain_ok:
+            print(
+                f"  WARNING: {path.parent.name}/{path.stem}: calibration did not "
+                f"identify a gain (gain={gain:.5g}); using it unscaled.",
+                file=sys.stderr,
+            )
+        if not eval_mask.any():
+            raise ValueError(
+                f"{path}: calibration consumed the whole recording; "
+                f"reduce --calib-seconds"
+            )
+
+        # Per-recording output scale, derived from the base output only, so it
+        # is computable at deployment. Keeps the compensation proportional to
+        # the session instead of carrying a training-day offset.
+        scale = float(np.percentile(np.abs(y_base), 95))
+        if not np.isfinite(scale) or scale < 1e-6:
+            scale = 1.0
+
+        records.append(
+            {
+                "path": path,
+                "session": path.parent.name,
+                "t": t,
+                "x": x,
+                "x_n": x_n,
+                "y": y,
+                "y_base": y_base,
+                "error": y - y_base,
+                "semg_scale": semg_scale,
+                "session_gain": gain,
+                "scale": scale,
+                "eval_mask": eval_mask,
+            }
+        )
+    return records
+
+
+def record_arrays(record):
+    """Session-normalised features and target for one recording."""
+    feat = np.column_stack([record["x_n"], record["y_base"] / record["scale"]])
+    target = record["error"] / record["scale"]
+    return feat, target
+
+
+def windows(x, y, stride):
     if len(x) < SEQ:
         return (
             np.empty((0, SEQ, x.shape[1]), dtype=np.float32),
             np.empty(0, dtype=np.float32),
             np.array([], dtype=int),
         )
-    index = np.arange(SEQ - 1, len(x), WINDOW_STRIDE)
+    index = np.arange(SEQ - 1, len(x), stride)
     X_all = np.lib.stride_tricks.sliding_window_view(x, SEQ, axis=0)
     X_all = np.transpose(X_all, (0, 2, 1))
     win_idx = index - (SEQ - 1)
@@ -171,55 +392,16 @@ def windows(x, y):
     return X, Y, index
 
 
-def semg_scale_from_files(paths, q=99.0):
-    vals = []
-    for path in paths:
-        _, x, _ = load(path)
-        vals.append(x)
-    all_x = np.concatenate(vals)
-    positive = all_x[all_x > 0]
-    if len(positive) == 0:
-        return float(np.max(np.abs(all_x)) or 1.0)
-    return float(np.percentile(positive, q))
-
-
-def fit_base_model(paths, scale):
-    data = [load(p) for p in paths]
-
-    def residual(theta):
-        out = []
-        for _, x, y in data:
-            out.append(base_model(theta, x / scale) - y)
-        return np.concatenate(out)
-
-    result = least_squares(
-        residual,
-        x0=np.array([1.0, 1.0]),
-        bounds=([0.0, 0.0], [20.0, 20.0]),
-        method="trf",
-        max_nfev=3000,
-    )
-    return result.x.copy(), result
-
-
-def build_records(paths, base_theta, scale):
-    records = []
-    for path in paths:
-        t, x, y = load(path)
-        x_n = x / scale
-        y_base = base_model(base_theta, x_n)
-        records.append(
-            {
-                "path": path,
-                "t": t,
-                "x": x,
-                "x_n": x_n,
-                "y": y,
-                "y_base": y_base,
-                "error": y - y_base,
-            }
-        )
-    return records
+def record_windows(record, x_scaler, stride):
+    """Windows for one recording, with the calibration segment removed."""
+    feat, target = record_arrays(record)
+    if x_scaler is not None:
+        feat = x_scaler.transform(feat)
+    X, Y, index = windows(feat, target, stride)
+    if len(index) == 0:
+        return X, Y, index
+    keep = record["eval_mask"][index]
+    return X[keep], Y[keep], index[keep]
 
 
 def fix_scaler_scale(scaler):
@@ -229,32 +411,28 @@ def fix_scaler_scale(scaler):
     scaler.scale_ = scale
 
 
-def fit_scalers(records):
-    x_scaler = StandardScaler()
-    y_scaler = StandardScaler()
-
-    x_scaler.fit(
-        np.vstack([features(r["x_n"], r["y_base"]) for r in records])
-    )
-    y_scaler.fit(
-        np.concatenate([r["error"] for r in records])[:, None]
-    )
-    fix_scaler_scale(x_scaler)
-    fix_scaler_scale(y_scaler)
-    return x_scaler, y_scaler
+def fit_feature_scaler(records):
+    """StandardScaler on inputs only, fitted on training recordings."""
+    scaler = StandardScaler()
+    scaler.fit(np.vstack([record_arrays(r)[0] for r in records]))
+    fix_scaler_scale(scaler)
+    return scaler
 
 
-def records_to_xy(records, x_scaler, y_scaler, label=""):
+def records_to_xy(records, x_scaler, stride, label=""):
     X_parts, Y_parts = [], []
     for r in records:
-        feat = x_scaler.transform(features(r["x_n"], r["y_base"]))
-        err = y_scaler.transform(r["error"][:, None]).ravel()
-        X, Y, _ = windows(feat, err)
-        # Guard: scaled windows must stay finite before training.
-        assert_finite(X, f"{label or r['path']} features (windows)")
-        assert_finite(Y, f"{label or r['path']} targets (windows)")
+        X, Y, _ = record_windows(r, x_scaler, stride)
+        if len(X) == 0:
+            continue
+        assert_finite(X, f"{r['path']} features (windows)")
+        assert_finite(Y, f"{r['path']} targets (windows)")
         X_parts.append(X)
         Y_parts.append(Y)
+
+    if not X_parts:
+        raise ValueError(f"No usable windows for split {label or '?'}")
+
     X_all = np.concatenate(X_parts)
     Y_all = np.concatenate(Y_parts)
     if label:
@@ -333,21 +511,13 @@ def apply_warmup_lr(optimizer, step, warmup_steps, base_lr):
             group["lr"] = lr
 
 
-def run_epoch(
-    model,
-    loader,
-    optimizer,
-    loss_fn,
-    train=True,
-    log_every=0,
-    warmup_state=None,
-):
+def run_epoch(model, loader, optimizer, loss_fn, train=True, warmup_state=None):
     model.train(mode=train)
     losses = []
     skipped = 0
     total_batches = len(loader)
 
-    for batch_i, (xb, yb) in enumerate(loader, start=1):
+    for xb, yb in loader:
         xb = xb.to(DEVICE)
         yb = yb.to(DEVICE)
 
@@ -383,11 +553,6 @@ def run_epoch(
             optimizer.step()
 
         losses.append(loss.item())
-        if log_every and batch_i % log_every == 0:
-            print(
-                f"    batch {batch_i}/{total_batches} loss={loss.item():.6f}",
-                flush=True,
-            )
 
     if not losses:
         return float("nan"), skipped, total_batches
@@ -429,62 +594,26 @@ def save_checkpoint(state, path):
 
 
 @torch.no_grad()
-def eval_split_loss_and_rmse(model, records, x_scaler, y_scaler, loss_fn):
-    """Compute mean scaled loss and physical RMSE over a split (no file IO)."""
-    losses = []
-    rmses = []
-
-    for r in records:
-        feat = x_scaler.transform(features(r["x_n"], r["y_base"]))
-        err_scaled = y_scaler.transform(r["error"][:, None]).ravel()
-        X, Y, index = windows(feat, err_scaled)
-        if len(X) == 0:
-            continue
-
-        assert_finite(X, f"{r['path']} eval features (windows)")
-        assert_finite(Y, f"{r['path']} eval targets (windows)")
-
-        pred_parts = []
-        for i in range(0, len(X), BATCH):
-            xb = tensor_from_numpy(X[i : i + BATCH], f"{r['path']} eval batch")
-            xb = xb.to(DEVICE)
-            pred_parts.append(model(xb).cpu())
-        pred_scaled = torch.cat(pred_parts)
-
-        target = torch.tensor(Y, dtype=torch.float32)
-        split_loss = loss_fn(pred_scaled, target).item()
-        if np.isfinite(split_loss):
-            losses.append(split_loss)
-
-        compensation = y_scaler.inverse_transform(pred_scaled.numpy()[:, None]).ravel()
-        y_true = r["y"][index]
-        y_hat = r["y_base"][index] + compensation
-        rmses.append(float(np.sqrt(mean_squared_error(y_true, y_hat))))
-
-    if not losses:
-        return float("nan"), float("nan")
-    return float(np.mean(losses)), float(np.mean(rmses))
-
-
-@torch.no_grad()
-def predict_compensation(model, records, x_scaler, y_scaler, scale):
+def predict_records(model, records, x_scaler, stride):
+    """Predict compensation and rebuild physical force for each recording."""
     model.eval()
     rows = []
 
     for r in records:
-        feat = x_scaler.transform(features(r["x_n"], r["y_base"]))
-        X, _, index = windows(feat, np.zeros(len(feat)))
-        # Guard: inference features must remain finite after scaling/windowing.
+        X, _, index = record_windows(r, x_scaler, stride)
+        if len(X) == 0:
+            continue
         assert_finite(X, f"{r['path']} inference features (windows)")
 
         pred_parts = []
         for i in range(0, len(X), BATCH):
             xb = tensor_from_numpy(X[i : i + BATCH], f"{r['path']} inference batch")
-            xb = xb.to(DEVICE)
-            pred_parts.append(model(xb).cpu().numpy())
-        pred_scaled = np.concatenate(pred_parts)
+            pred_parts.append(model(xb.to(DEVICE)).cpu().numpy())
+        pred_norm = np.concatenate(pred_parts)
 
-        compensation = y_scaler.inverse_transform(pred_scaled[:, None]).ravel()
+        # Undo the per-recording normalisation: the compensation scales with
+        # this session, not with the training days.
+        compensation = pred_norm * r["scale"]
         y_true = r["y"][index]
         y_base = r["y_base"][index]
         y_hat = y_base + compensation
@@ -492,6 +621,7 @@ def predict_compensation(model, records, x_scaler, y_scaler, scale):
         rows.append(
             {
                 "path": r["path"],
+                "session": r["session"],
                 "index": index,
                 "t": r["t"][index],
                 "x": r["x"][index],
@@ -499,6 +629,7 @@ def predict_compensation(model, records, x_scaler, y_scaler, scale):
                 "y_base": y_base,
                 "compensation": compensation,
                 "y_hat": y_hat,
+                "session_gain": r["session_gain"],
                 "base_metrics": metrics(y_true, y_base),
                 "final_metrics": metrics(y_true, y_hat),
             }
@@ -506,14 +637,27 @@ def predict_compensation(model, records, x_scaler, y_scaler, scale):
     return rows
 
 
-def save_training_loss_plot(history, run_summary, out_path):
-    """Always save train/val/test loss curves with best and early-stop epochs."""
+@torch.no_grad()
+def split_rmse(model, records, x_scaler, stride):
+    """Mean physical RMSE over a split (base and final)."""
+    rows = predict_records(model, records, x_scaler, stride)
+    if not rows:
+        return float("nan"), float("nan")
+    base = float(np.mean([r["base_metrics"]["RMSE"] for r in rows]))
+    final = float(np.mean([r["final_metrics"]["RMSE"] for r in rows]))
+    return base, final
+
+
+# =========================================================
+# Plots
+# =========================================================
+def save_training_loss_plot(history, run_summary, out_path, title_suffix=""):
+    """Save train/val loss curves with best and early-stop epochs."""
     epochs = [h["epoch"] for h in history]
     fig, ax = plt.subplots(figsize=(10, 6))
 
     ax.plot(epochs, [h["train_loss"] for h in history], label="Train loss", linewidth=1.5)
     ax.plot(epochs, [h["val_loss"] for h in history], label="Val loss", linewidth=1.5)
-    ax.plot(epochs, [h["test_loss"] for h in history], label="Test loss", linewidth=1.5)
 
     best_ep = run_summary["best_epoch"]
     ax.axvline(
@@ -534,8 +678,8 @@ def save_training_loss_plot(history, run_summary, out_path):
         )
 
     ax.set_xlabel("Epoch")
-    ax.set_ylabel("Huber loss (scaled)")
-    ax.set_title("Training / validation / test loss per epoch")
+    ax.set_ylabel("Huber loss (normalised)")
+    ax.set_title(f"Training / validation loss per epoch{title_suffix}")
     ax.legend(loc="best")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
@@ -543,8 +687,8 @@ def save_training_loss_plot(history, run_summary, out_path):
     plt.close(fig)
 
 
-def save_test_force_plots(rows, out_dir):
-    """Always save real vs predicted force line plots with metrics at the bottom."""
+def save_force_plots(rows, out_dir):
+    """Save real / EDM base / predicted force line plots with metrics."""
     out_dir.mkdir(parents=True, exist_ok=True)
     summary = []
 
@@ -554,75 +698,63 @@ def save_test_force_plots(rows, out_dir):
         y_true = row["y"]
         y_hat = row["y_hat"]
         y_base = row["y_base"]
-        final_m = metrics(y_true, y_hat)
-        base_m = metrics(y_true, y_base)
+        final_m = row["final_metrics"]
+        base_m = row["base_metrics"]
 
         step = max(1, len(t) // 5000)
         sl = slice(None, None, step)
 
         fig, ax = plt.subplots(figsize=(12, 5))
-        ax.plot(t[sl], y_true[sl], label="Real Force", linewidth=1.0)
-        ax.plot(t[sl], y_hat[sl], label="Predicted Force", linewidth=1.0, alpha=0.85)
+        ax.plot(t[sl], y_true[sl], label="Real Force", linewidth=1.2)
+        ax.plot(
+            t[sl],
+            y_base[sl],
+            label="EDM Output (base model)",
+            linewidth=1.0,
+            alpha=0.85,
+            linestyle="--",
+        )
+        ax.plot(
+            t[sl],
+            y_hat[sl],
+            label="Predicted Force (base + compensation)",
+            linewidth=1.0,
+            alpha=0.85,
+        )
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Force")
-        ax.set_title(f"{stem}: Real vs Predicted Force")
+        ax.set_title(f"{row['session']} / {stem}: Real vs EDM vs Predicted Force")
         ax.legend(loc="upper right")
         ax.grid(True, alpha=0.3)
 
         metric_text = (
             f"Final  RMSE={final_m['RMSE']:.4f}  MAE={final_m['MAE']:.4f}  "
-            f"R2={final_m['R2']:.4f}  MSE={final_m['MSE']:.4f}     "
+            f"R2={final_m['R2']:.4f}     "
             f"Base   RMSE={base_m['RMSE']:.4f}  MAE={base_m['MAE']:.4f}  "
-            f"R2={base_m['R2']:.4f}  MSE={base_m['MSE']:.4f}"
+            f"R2={base_m['R2']:.4f}     "
+            f"session_gain={row['session_gain']:.4f}"
         )
         fig.text(0.5, 0.02, metric_text, ha="center", va="bottom", fontsize=9)
         fig.subplots_adjust(bottom=0.18)
         fig.savefig(out_dir / f"{stem}.png", dpi=150)
         plt.close(fig)
 
-        summary.append({"Data": stem, **final_m})
-
-    return summary
-
-
-def save_test_predictions_csv(rows, out_dir):
-    """CSV export for test predictions (only used with --save-all)."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    summary = []
-
-    for row in rows:
-        stem = row["path"].stem
-        y_true = row["y"]
-        y_hat = row["y_hat"]
-
-        pd.DataFrame(
-            {
-                TCOL: row["t"],
-                "Force": y_true,
-                "Predicted_Force": y_hat,
-            }
-        ).to_csv(out_dir / f"{stem}.csv", index=False)
-
         summary.append(
             {
+                "Session": row["session"],
                 "Data": stem,
-                "RMSE": float(np.sqrt(mean_squared_error(y_true, y_hat))),
-                "MAE": float(mean_absolute_error(y_true, y_hat)),
-                "R2": float(r2_score(y_true, y_hat)),
+                "Session_Gain": row["session_gain"],
+                **{f"Base_{k}": v for k, v in base_m.items()},
+                **{f"Final_{k}": v for k, v in final_m.items()},
             }
         )
 
-    pd.DataFrame(summary).to_csv(out_dir / "metrics_summary.csv", index=False)
     return summary
 
 
-def save_predictions(rows, split_dir):
-    summary = []
+def save_prediction_csvs(rows, out_dir):
+    out_dir.mkdir(parents=True, exist_ok=True)
     for row in rows:
-        stem = row["path"].stem
-        save_dir = split_dir / stem
-        save_dir.mkdir(parents=True, exist_ok=True)
-
         pd.DataFrame(
             {
                 TCOL: row["t"],
@@ -634,51 +766,12 @@ def save_predictions(rows, split_dir):
                 "BaseModel_Error": row["y"] - row["y_base"],
                 "Final_Error": row["y"] - row["y_hat"],
             }
-        ).to_csv(save_dir / "prediction.csv", index=False)
-
-        result = {
-            "Data": stem,
-            **{f"Base_{k}": v for k, v in row["base_metrics"].items()},
-            **{f"Final_{k}": v for k, v in row["final_metrics"].items()},
-        }
-        pd.DataFrame([result]).to_csv(save_dir / "metrics.csv", index=False)
-        summary.append(result)
-
-    pd.DataFrame(summary).to_csv(split_dir / "metrics_summary.csv", index=False)
-    return summary
+        ).to_csv(out_dir / f"{row['path'].stem}.csv", index=False)
 
 
-def parse_args():
-    p = argparse.ArgumentParser(description="Train compensation model")
-    p.add_argument(
-        "--stride",
-        type=int,
-        default=WINDOW_STRIDE,
-        help="Window stride (higher = less RAM). Try 10 for ~4GB, 20 for ~2GB.",
-    )
-    p.add_argument(
-        "--batch",
-        type=int,
-        default=BATCH,
-        help="Batch size (lower = less RAM). Try 32 or 16 on small machines.",
-    )
-    p.add_argument("--epochs", type=int, default=MAX_EPOCHS)
-    p.add_argument(
-        "--debug-anomaly",
-        action="store_true",
-        help="Enable torch autograd anomaly detection for NaN traceback.",
-    )
-    p.add_argument(
-        "--save-all",
-        action="store_true",
-        help=(
-            "Also save CSV outputs (training history, run summary, model, "
-            "config, validation CSVs, detailed prediction CSVs)."
-        ),
-    )
-    return p.parse_args()
-
-
+# =========================================================
+# One LODO fold
+# =========================================================
 def check_epoch_losses(train_loss, val_loss, train_skipped, train_batches, epoch):
     """Abort training when an epoch produces no usable finite losses."""
     if not np.isfinite(train_loss):
@@ -706,61 +799,73 @@ def check_epoch_losses(train_loss, val_loss, train_skipped, train_batches, epoch
         sys.exit(1)
 
 
-def main():
-    global WINDOW_STRIDE, BATCH, MAX_EPOCHS
+def run_fold(test_session, val_session, args):
+    """Train on the remaining sessions, validate on one, test on a held-out day."""
+    set_seed(SEED)
 
-    args = parse_args()
-    WINDOW_STRIDE = max(1, args.stride)
-    BATCH = max(1, args.batch)
-    MAX_EPOCHS = args.epochs
+    train_sessions = [
+        s for s in SESSIONS if s not in (test_session, val_session)
+    ]
+    train_paths = [p for s in train_sessions for p in session_files(s)]
+    val_paths = session_files(val_session)
+    test_paths = session_files(test_session)
 
-    if args.debug_anomaly:
-        torch.autograd.set_detect_anomaly(True)
+    print(f"\n{'=' * 62}")
+    print(f"FOLD  test={test_session}  val={val_session}")
+    print(f"  train sessions : {', '.join(train_sessions)} ({len(train_paths)} files)")
+    print(f"  val   session  : {val_session} ({len(val_paths)} files)")
+    print(f"  test  session  : {test_session} ({len(test_paths)} files)")
+    print(f"{'=' * 62}", flush=True)
 
-    OUT.mkdir(parents=True, exist_ok=True)
-    print("DEVICE =", DEVICE, flush=True)
+    use_lpf = not args.no_lpf
+
+    # Base model is refitted on this fold's training sessions only.
+    print("Fitting base model on training sessions...", flush=True)
+    theta, base_result = fit_base_model(train_paths, use_lpf=use_lpf)
+    if use_lpf:
+        print(
+            f"  TANH gain={theta[0]:.4f} slope={theta[1]:.4f} | LPF fc={theta[2]:.2f} Hz"
+            f"  (cost={base_result.cost:.4f})",
+            flush=True,
+        )
+    else:
+        print(
+            f"  TANH gain={theta[0]:.4f} slope={theta[1]:.4f}"
+            f"  (cost={base_result.cost:.4f})",
+            flush=True,
+        )
+
+    train_records = build_records(train_paths, theta, args.calib_seconds, use_lpf)
+    val_records = build_records(val_paths, theta, args.calib_seconds, use_lpf)
+    test_records = build_records(test_paths, theta, args.calib_seconds, use_lpf)
+
+    gains = [r["session_gain"] for r in test_records]
     print(
-        f"Train files: {len(TRAIN_FILES)} | Val: {len(VAL_FILES)} | Test: {len(TEST_FILES)}",
+        f"  test session gains: min={min(gains):.4f} max={max(gains):.4f} "
+        f"mean={np.mean(gains):.4f}",
         flush=True,
     )
-    print(
-        f"Low-RAM settings: stride={WINDOW_STRIDE}, batch={BATCH}",
-        flush=True,
-    )
 
-    # Use training statistics only; do not leak validation into sEMG scale.
-    semg_scale = semg_scale_from_files(TRAIN_FILES)
-    base_theta, base_result = fit_base_model(BASE_FILES, semg_scale)
+    x_scaler = fit_feature_scaler(train_records)
 
-    print("\n===== Base model (all 3rd_Base files) =====")
-    print(f"sEMG scale = {semg_scale:.4f}")
-    print(f"gain  = {base_theta[0]:.4f}")
-    print(f"slope = {base_theta[1]:.4f}")
-
-    train_records = build_records(TRAIN_FILES, base_theta, semg_scale)
-    val_records = build_records(VAL_FILES, base_theta, semg_scale)
-    test_records = build_records(TEST_FILES, base_theta, semg_scale)
-
-    print("Fitting scalers on training data...", flush=True)
-    x_scaler, y_scaler = fit_scalers(train_records)
     print("Building windows...", flush=True)
-    X_train, Y_train = records_to_xy(train_records, x_scaler, y_scaler, "train")
-    X_val, Y_val = records_to_xy(val_records, x_scaler, y_scaler, "val")
-    print(f"Pattern {PATTERN} ready", flush=True)
-
-    X_train_t = tensor_from_numpy(X_train, "X_train")
-    Y_train_t = tensor_from_numpy(Y_train, "Y_train")
-    X_val_t = tensor_from_numpy(X_val, "X_val")
-    Y_val_t = tensor_from_numpy(Y_val, "Y_val")
+    X_train, Y_train = records_to_xy(train_records, x_scaler, args.stride, "train")
+    X_val, Y_val = records_to_xy(val_records, x_scaler, args.stride, "val")
 
     train_loader = DataLoader(
-        TensorDataset(X_train_t, Y_train_t),
+        TensorDataset(
+            tensor_from_numpy(X_train, "X_train"),
+            tensor_from_numpy(Y_train, "Y_train"),
+        ),
         batch_size=BATCH,
         shuffle=True,
-        drop_last=True,  # Avoid batch-size-1 BatchNorm/GroupNorm edge cases.
+        drop_last=True,  # Avoid batch-size-1 normalisation edge cases.
     )
     val_loader = DataLoader(
-        TensorDataset(X_val_t, Y_val_t),
+        TensorDataset(
+            tensor_from_numpy(X_val, "X_val"),
+            tensor_from_numpy(Y_val, "Y_val"),
+        ),
         batch_size=BATCH,
         shuffle=False,
     )
@@ -788,38 +893,15 @@ def main():
     early_stopped = False
     early_stop_epoch = None
 
-    print("\n===== Training =====")
-    for epoch in range(1, MAX_EPOCHS + 1):
+    print("Training...", flush=True)
+    for epoch in range(1, args.epochs + 1):
         train_loss, train_skipped, train_batches = run_epoch(
-            model,
-            train_loader,
-            optimizer,
-            loss_fn,
-            train=True,
-            log_every=500,
+            model, train_loader, optimizer, loss_fn, train=True,
             warmup_state=warmup_state,
         )
-        val_loss, val_skipped, val_batches = run_epoch(
+        val_loss, _, _ = run_epoch(
             model, val_loader, optimizer, loss_fn, train=False
         )
-        val_rmse = eval_split_loss_and_rmse(
-            model, val_records, x_scaler, y_scaler, loss_fn
-        )[1]
-        test_loss, test_rmse = eval_split_loss_and_rmse(
-            model, test_records, x_scaler, y_scaler, loss_fn
-        )
-
-        if train_skipped:
-            print(
-                f"  train skipped batches: {train_skipped}/{train_batches}",
-                flush=True,
-            )
-        if val_skipped:
-            print(
-                f"  val skipped batches: {val_skipped}/{val_batches}",
-                flush=True,
-            )
-
         check_epoch_losses(
             train_loss, val_loss, train_skipped, train_batches, epoch
         )
@@ -846,21 +928,14 @@ def main():
                 "epoch": epoch,
                 "train_loss": train_loss,
                 "val_loss": val_loss,
-                "test_loss": test_loss,
-                "val_rmse": val_rmse,
-                "test_rmse": test_rmse,
-                "train_skipped": train_skipped,
-                "val_skipped": val_skipped,
                 "lr": optimizer.param_groups[0]["lr"],
                 "is_best": improved,
             }
         )
 
         print(
-            f"Epoch {epoch:3d}/{MAX_EPOCHS} | "
-            f"train={train_loss:.6f} val={val_loss:.6f} test={test_loss:.6f} "
-            f"val_rmse={val_rmse:.4f} test_rmse={test_rmse:.4f} "
-            f"lr={optimizer.param_groups[0]['lr']:.2e}"
+            f"  Epoch {epoch:3d}/{args.epochs} | train={train_loss:.6f} "
+            f"val={val_loss:.6f} lr={optimizer.param_groups[0]['lr']:.2e}"
             + (" *" if improved else ""),
             flush=True,
         )
@@ -868,12 +943,11 @@ def main():
         if stale >= EARLY_STOP_PATIENCE:
             early_stopped = True
             early_stop_epoch = epoch
-            print(f"Early stopping at epoch {epoch} (best epoch = {best_epoch})")
+            print(f"  Early stopping at epoch {epoch} (best = {best_epoch})")
             break
 
-    total_epochs = len(history)
     if early_stop_epoch is None:
-        early_stop_epoch = total_epochs
+        early_stop_epoch = len(history)
 
     if not np.isfinite(best_val) or state_has_nonfinite(best_state):
         print(
@@ -890,88 +964,220 @@ def main():
         "best_val_loss": best_val,
         "early_stop_epoch": early_stop_epoch,
         "early_stopped": early_stopped,
-        "total_epochs": total_epochs,
-        "max_epochs": MAX_EPOCHS,
-        "patience": EARLY_STOP_PATIENCE,
-        "final_train_loss": history[-1]["train_loss"],
-        "final_val_loss": history[-1]["val_loss"],
-        "final_test_loss": history[-1]["test_loss"],
-        "final_val_rmse": history[-1]["val_rmse"],
-        "final_test_rmse": history[-1]["test_rmse"],
-        "best_val_rmse": history[best_epoch - 1]["val_rmse"],
-        "best_test_rmse": history[best_epoch - 1]["test_rmse"],
+        "total_epochs": len(history),
     }
 
-    loss_plot_path = OUT / "training_loss.png"
-    save_training_loss_plot(history, run_summary, loss_plot_path)
+    fold_dir = OUT / "lodo" / f"test_{test_session}"
+    fold_dir.mkdir(parents=True, exist_ok=True)
 
-    print("\n===== Test =====")
-    test_rows = predict_compensation(
-        model, test_records, x_scaler, y_scaler, semg_scale
+    save_training_loss_plot(
+        history,
+        run_summary,
+        fold_dir / "training_loss.png",
+        title_suffix=f"  (test = {test_session})",
     )
-    test_plot_dir = OUT / "test"
-    test_summary = save_test_force_plots(test_rows, test_plot_dir)
 
-    print(f"Best epoch: {best_epoch}")
-    print(
-        f"Early stopping: {'yes' if early_stopped else 'no'} "
-        f"(stopped at epoch {early_stop_epoch})"
+    val_base_rmse, val_final_rmse = split_rmse(
+        model, val_records, x_scaler, args.stride
     )
-    print(f"Saved loss plot         -> {loss_plot_path}")
-    print(f"Saved test force plots  -> {test_plot_dir}")
+
+    print("Predicting held-out test day...", flush=True)
+    test_rows = predict_records(model, test_records, x_scaler, args.stride)
+    file_summary = save_force_plots(test_rows, fold_dir / "test")
+    if not args.images_only:
+        pd.DataFrame(file_summary).to_csv(
+            fold_dir / "per_file_metrics.csv", index=False
+        )
 
     if args.save_all:
-        history_df = pd.DataFrame(history)
-        history_df.to_csv(OUT / "training_history.csv", index=False)
-        (OUT / "run_summary.json").write_text(json.dumps(run_summary, indent=2))
-
-        save_checkpoint(best_state, OUT / "model.pt")
-
-        pd.DataFrame(
-            [
+        save_prediction_csvs(test_rows, fold_dir / "test_csv")
+        save_checkpoint(best_state, fold_dir / "model.pt")
+        pd.DataFrame(history).to_csv(fold_dir / "training_history.csv", index=False)
+        (fold_dir / "fold_config.json").write_text(
+            json.dumps(
                 {
-                    "Order": 1,
-                    "Function": "TANH",
-                    "Parameter1": base_theta[0],
-                    "Parameter2": base_theta[1],
-                    "sEMG_Scale": semg_scale,
-                }
+                    "test_session": test_session,
+                    "val_session": val_session,
+                    "train_sessions": train_sessions,
+                    "base_theta": theta.tolist(),
+                    "use_lpf": use_lpf,
+                    "calib_seconds": args.calib_seconds,
+                    "stride": args.stride,
+                    **run_summary,
+                },
+                indent=2,
+            )
+        )
+
+    base_rmse = float(np.mean([r["Base_RMSE"] for r in file_summary]))
+    final_rmse = float(np.mean([r["Final_RMSE"] for r in file_summary]))
+    base_r2 = float(np.mean([r["Base_R2"] for r in file_summary]))
+    final_r2 = float(np.mean([r["Final_R2"] for r in file_summary]))
+    improved_files = sum(
+        1 for r in file_summary if r["Final_RMSE"] < r["Base_RMSE"]
+    )
+
+    print(
+        f"\n  FOLD RESULT (test = {test_session})\n"
+        f"    val  : base RMSE={val_base_rmse:.4f}  final RMSE={val_final_rmse:.4f}\n"
+        f"    test : base RMSE={base_rmse:.4f}  final RMSE={final_rmse:.4f}\n"
+        f"    test : base R2  ={base_r2:.4f}  final R2  ={final_r2:.4f}\n"
+        f"    files improved by compensation: {improved_files}/{len(file_summary)}",
+        flush=True,
+    )
+
+    return {
+        "Test_Session": test_session,
+        "Val_Session": val_session,
+        "Train_Sessions": "+".join(train_sessions),
+        "N_Test_Files": len(file_summary),
+        "Best_Epoch": best_epoch,
+        "Val_Base_RMSE": val_base_rmse,
+        "Val_Final_RMSE": val_final_rmse,
+        "Base_RMSE": base_rmse,
+        "Final_RMSE": final_rmse,
+        "Base_R2": base_r2,
+        "Final_R2": final_r2,
+        "Files_Improved": improved_files,
+    }
+
+
+# =========================================================
+# CLI
+# =========================================================
+def parse_args():
+    p = argparse.ArgumentParser(
+        description="Leave-One-Day-Out cross-day compensation training"
+    )
+    p.add_argument(
+        "--stride", type=int, default=WINDOW_STRIDE,
+        help="Window stride (higher = less RAM/time). Try 10 or 20 on a laptop.",
+    )
+    p.add_argument("--batch", type=int, default=BATCH, help="Batch size.")
+    p.add_argument("--epochs", type=int, default=MAX_EPOCHS, help="Max epochs per fold.")
+    p.add_argument(
+        "--calib-seconds", type=float, default=0.0,
+        help=(
+            "Seconds at the start of each recording used to calibrate the "
+            "per-session force gain, mirroring a real deployment calibration. "
+            "0 disables it (no-calibration baseline). The calibration window is "
+            "excluded from all reported metrics."
+        ),
+    )
+    p.add_argument(
+        "--no-lpf", action="store_true",
+        help="Ablation: use a static TANH base model with no dynamics.",
+    )
+    p.add_argument(
+        "--test-sessions", nargs="+", default=None, metavar="SESSION",
+        help=f"Run only these folds. Choices: {' '.join(SESSIONS)}",
+    )
+    outputs = p.add_mutually_exclusive_group()
+    outputs.add_argument(
+        "--save-all", action="store_true",
+        help="Also save model checkpoints, per-file prediction CSVs and history.",
+    )
+    outputs.add_argument(
+        "--images-only", action="store_true",
+        help=(
+            "Save only PNGs (result plots and the training-loss curve). "
+            "Writes no CSV files; metrics are still printed to the console."
+        ),
+    )
+    p.add_argument(
+        "--debug-anomaly", action="store_true",
+        help="Enable torch autograd anomaly detection for NaN traceback.",
+    )
+    return p.parse_args()
+
+
+def main():
+    global BATCH
+
+    args = parse_args()
+    args.stride = max(1, args.stride)
+    BATCH = max(1, args.batch)
+
+    if args.debug_anomaly:
+        torch.autograd.set_detect_anomaly(True)
+
+    test_sessions = args.test_sessions or SESSIONS
+    unknown = [s for s in test_sessions if s not in SESSIONS]
+    if unknown:
+        print(
+            f"ERROR: unknown session(s): {', '.join(unknown)}\n"
+            f"Choices: {', '.join(SESSIONS)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    missing = [s for s in SESSIONS if not session_files(s)]
+    if missing:
+        print(
+            f"ERROR: no Data*.csv found for session(s): {', '.join(missing)}\n"
+            f"Looked under: {DATA.resolve()}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    OUT.mkdir(parents=True, exist_ok=True)
+
+    print("DEVICE =", DEVICE)
+    print("Sessions:", ", ".join(SESSIONS))
+    print(f"Folds to run: {', '.join(test_sessions)}")
+    print(
+        f"stride={args.stride} batch={BATCH} epochs={args.epochs} "
+        f"calib_seconds={args.calib_seconds} lpf={not args.no_lpf}"
+    )
+
+    results = []
+    for test_session in test_sessions:
+        # Validation is a different held-out day, rotating deterministically.
+        i = SESSIONS.index(test_session)
+        val_session = SESSIONS[(i + 1) % len(SESSIONS)]
+        results.append(run_fold(test_session, val_session, args))
+
+    df = pd.DataFrame(results)
+    if not args.images_only:
+        summary_path = OUT / "lodo" / "lodo_summary.csv"
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        df.to_csv(summary_path, index=False)
+
+    print(f"\n{'=' * 62}")
+    print("LEAVE-ONE-DAY-OUT SUMMARY")
+    print(f"{'=' * 62}")
+    print(
+        df[
+            [
+                "Test_Session", "Base_RMSE", "Final_RMSE",
+                "Base_R2", "Final_R2", "Files_Improved", "N_Test_Files",
             ]
-        ).to_csv(OUT / "base_model_parameters.csv", index=False)
+        ].to_string(index=False)
+    )
 
-        meta = {
-            "pattern": PATTERN,
-            "semg_scale": semg_scale,
-            "base_theta": base_theta.tolist(),
-            "x_scaler_mean": x_scaler.mean_.tolist(),
-            "x_scaler_scale": x_scaler.scale_.tolist(),
-            "y_scaler_mean": float(y_scaler.mean_[0]),
-            "y_scaler_scale": float(y_scaler.scale_[0]),
-            **run_summary,
-        }
-        (OUT / "run_config.json").write_text(json.dumps(meta, indent=2))
+    print(
+        f"\nMean across folds: base RMSE={df['Base_RMSE'].mean():.4f} "
+        f"(+-{df['Base_RMSE'].std():.4f})  "
+        f"final RMSE={df['Final_RMSE'].mean():.4f} "
+        f"(+-{df['Final_RMSE'].std():.4f})"
+    )
 
-        print("\n===== Validation (full save) =====")
-        val_summary = save_predictions(
-            predict_compensation(
-                model, val_records, x_scaler, y_scaler, semg_scale
-            ),
-            OUT / "validation",
+    total_improved = int(df["Files_Improved"].sum())
+    total_files = int(df["N_Test_Files"].sum())
+    folds_improved = int((df["Final_RMSE"] < df["Base_RMSE"]).sum())
+    print(
+        f"Folds where compensation beat the base model: "
+        f"{folds_improved}/{len(df)}"
+    )
+    print(f"Files where compensation beat the base model: {total_improved}/{total_files}")
+
+    if folds_improved == 0:
+        print(
+            "\nGATE FAILED: compensation did not beat the base model on any fold.\n"
+            "Do not tune the architecture yet - the scale/gain handling is still "
+            "wrong. Try --calib-seconds 10 first."
         )
-        pd.DataFrame(val_summary).to_csv(
-            OUT / "validation_summary.csv", index=False
-        )
-
-        print("\n===== Test CSVs (--save-all) =====")
-        save_test_predictions_csv(test_rows, OUT / "test_csv")
-        pd.DataFrame(test_summary).to_csv(
-            OUT / "test_csv_summary.csv", index=False
-        )
-        print(f"Saved CSV history       -> {OUT / 'training_history.csv'}")
-        print(f"Saved run summary       -> {OUT / 'run_summary.json'}")
-
-    print("\nTest mean RMSE:", np.mean([r["RMSE"] for r in test_summary]))
-    print(f"\nSaved to:\n{OUT.resolve()}")
+    print(f"\nSaved to: {(OUT / 'lodo').resolve()}")
 
 
 if __name__ == "__main__":

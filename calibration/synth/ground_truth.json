@@ -1,0 +1,37 @@
+{
+  "sessions": {
+    "3rd_Base": {
+      "g_k": 1.0,
+      "c_k": 0.0,
+      "file": "C:\\Users\\22390013@students.ltu.edu.au\\OneDrive - LA TROBE UNIVERSITY\\Projects\\Japan\\codes\\Compensation_Conv_BiLSTM_Transformer\\calibration\\data\\synthetic\\3rd_Base\\Data1.csv"
+    },
+    "1st_Comp": {
+      "g_k": 0.9372616837562524,
+      "c_k": -0.011186229744463018,
+      "file": "C:\\Users\\22390013@students.ltu.edu.au\\OneDrive - LA TROBE UNIVERSITY\\Projects\\Japan\\codes\\Compensation_Conv_BiLSTM_Transformer\\calibration\\data\\synthetic\\1st_Comp\\Data1.csv"
+    },
+    "2nd_Comp": {
+      "g_k": 1.1544363031960057,
+      "c_k": -0.02204743582302723,
+      "file": "C:\\Users\\22390013@students.ltu.edu.au\\OneDrive - LA TROBE UNIVERSITY\\Projects\\Japan\\codes\\Compensation_Conv_BiLSTM_Transformer\\calibration\\data\\synthetic\\2nd_Comp\\Data1.csv"
+    },
+    "4th_Valid": {
+      "g_k": 1.2367943738608844,
+      "c_k": -0.04578540190087339,
+      "file": "C:\\Users\\22390013@students.ltu.edu.au\\OneDrive - LA TROBE UNIVERSITY\\Projects\\Japan\\codes\\Compensation_Conv_BiLSTM_Transformer\\calibration\\data\\synthetic\\4th_Valid\\Data1.csv"
+    },
+    "5th_Comp": {
+      "g_k": 1.0562441077802283,
+      "c_k": 0.001981462096177819,
+      "file": "C:\\Users\\22390013@students.ltu.edu.au\\OneDrive - LA TROBE UNIVERSITY\\Projects\\Japan\\codes\\Compensation_Conv_BiLSTM_Transformer\\calibration\\data\\synthetic\\5th_Comp\\Data1.csv"
+    }
+  },
+  "true_edm": {
+    "b1": 1.2,
+    "b2": 3.0,
+    "b3": 0.02,
+    "b4": 0.01,
+    "b5": 8.0,
+    "b6": 20.0
+  }
+}

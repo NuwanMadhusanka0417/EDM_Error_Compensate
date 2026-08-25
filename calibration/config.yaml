@@ -1,0 +1,98 @@
+seed: 42
+fs: 2000.0  # 1 / Ts with Ts=0.0005 s
+
+data:
+  root: ../Data
+  # Matches mycode/train_compensation.py session layout
+  sessions:
+    day0: 3rd_Base
+    train: [1st_Comp, 2nd_Comp, 3rd_Base]
+    val: 4th_Valid
+    test: 5th_Comp
+  csv:
+    time_col: Time
+    emg_raw_col: Cali_Rectified_PASF_sEMG
+    emg_env_col: Cali_LPF_PASF_sEMG
+    force_col: Force
+    use_preprocessed_envelope: true
+  # Split each recording into pseudo-trials (seconds)
+  segment_seconds:
+    discard_start: 1.0
+    baseline_window: 5.0
+    rest: 5.0
+    reference: 5.0
+    calibration: 8.0
+    # remainder -> task (evaluation only)
+
+preprocess:
+  pli_method: comb  # comb | pasf
+  comb:
+    c1: 0.668487
+    c2: 0.834243
+    f0: 50.0
+  pasf:
+    cutoff_hz: 24.0
+  bandpass_hz: [5.0, 500.0]
+  envelope_lpf_hz: 2.5
+  force_lpf_hz: 10.0
+  discard_start_s: 1.0
+  baseline_window_s: 5.0
+
+edm:
+  # bounds for day-0 identification [b1, b2, b3, b4, b5, b6]
+  bounds:
+    b1: [0.01, 10.0]
+    b2: [0.001, 20.0]
+    b3: [0.0, 0.15]
+    b4: [-1.0, 1.0]
+    b5: [0.1, 50.0]
+    b6: [1.0, 200.0]
+  identify:
+    method: differential_evolution
+    maxiter: 80
+    popsize: 12
+
+calibration:
+  stage1:
+    reference_stat: mean  # mean | p95 | quantile_matching
+  stage2:
+    method: ols  # ols | huber | ransac
+    alpha_min: 0.05
+    alpha_max: 20.0
+
+arms:
+  - id: A
+    name: uncalibrated
+    stage1: false
+    stage2: false
+  - id: B
+    name: stage1_only
+    stage1: true
+    stage2: false
+  - id: C
+    name: stage2_only
+    stage1: false
+    stage2: true
+  - id: D
+    name: cascade
+    stage1: true
+    stage2: true
+  - id: E
+    name: oracle_affine
+    stage1: false
+    stage2: oracle
+
+synth:
+  n_subjects: 2
+  n_days: 4
+  n_days_day0: 1
+  drift_gain_range: [0.6, 1.4]
+  drift_offset_range: [-0.05, 0.05]
+  duration_s: 25.0
+
+paths:
+  interim: data/interim
+  processed: data/processed
+  results_metrics: results/metrics
+  results_figures: results/figures
+  results_tables: results/tables

@@ -19,9 +19,9 @@ data:
   segment_seconds:
     discard_start: 1.0
     baseline_window: 5.0
-    rest: 5.0
-    reference: 5.0
-    calibration: 8.0
+    rest: 2.0
+    reference: 2.0
+    calibration: 5.0
     # remainder -> task (evaluation only)
 
 preprocess:

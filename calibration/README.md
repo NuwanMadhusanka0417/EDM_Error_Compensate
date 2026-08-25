@@ -38,6 +38,8 @@ Outputs:
 - `data/processed/edm_params.json` — frozen day-0 EDM
 - `results/metrics/arm_rmse.csv` — RMSE per arm on val/test
 - `results/metrics/decomposition.csv` — drift loss decomposition
+- `results/figures/<split>/<session>/DataN.png` — real vs EDM base vs calibrated force
+- `results/figures/force_plot_metrics.csv` — per-file RMSE/MAE/R² for base and calibrated
 
 ## Run on synthetic data (no real CSVs required)
 

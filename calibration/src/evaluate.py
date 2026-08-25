@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -21,6 +22,93 @@ logger = logging.getLogger(__name__)
 
 def rmse(y: np.ndarray, y_hat: np.ndarray) -> float:
     return float(np.sqrt(np.mean((y - y_hat) ** 2)))
+
+
+def mae(y: np.ndarray, y_hat: np.ndarray) -> float:
+    return float(np.mean(np.abs(y - y_hat)))
+
+
+def r2(y: np.ndarray, y_hat: np.ndarray) -> float:
+    ss_res = float(np.sum((y - y_hat) ** 2))
+    ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+    return float(1.0 - ss_res / ss_tot) if ss_tot > 1e-12 else float("nan")
+
+
+def fit_cascade_stages(
+    cfg: AppConfig,
+    edm: EDMParams,
+    day0_trials: list[TrialData],
+    session_trials: list[TrialData],
+) -> tuple[Stage1Normalizer, Stage2Affine]:
+    """Fit cascade (arm D) calibrators on non-task segments."""
+    stage1_day0 = Stage1Normalizer.from_day0(cfg.calibration, day0_trials)
+    fit_trials = [t for t in session_trials if t.role != TrialRole.TASK]
+    stage1 = Stage1Normalizer(cfg.calibration, stage1_day0.b0, stage1_day0.r0)
+    stage1.fit(fit_trials)
+
+    stage2 = Stage2Affine(cfg.calibration)
+    cal = trials_by_role(session_trials, TrialRole.CALIBRATION)
+    f_hat_parts, f_true_parts = [], []
+    for trial in cal:
+        env, force = preprocess_trial(
+            trial.emg_mv, trial.force_n, trial.fs, cfg.preprocess, envelope=trial.envelope
+        )
+        env_n = stage1.apply(env)
+        f_hat_parts.append(edm_forward(env_n, edm, cfg.fs))
+        f_true_parts.append(force)
+    if f_hat_parts:
+        stage2.fit_from_arrays(np.concatenate(f_hat_parts), np.concatenate(f_true_parts))
+    return stage1, stage2
+
+
+def task_force_predictions(
+    trial: TrialData,
+    cfg: AppConfig,
+    edm: EDMParams,
+    stage1: Stage1Normalizer,
+    stage2: Stage2Affine,
+) -> dict[str, np.ndarray]:
+    """Per-sample force traces for one task trial."""
+    env, force = preprocess_trial(
+        trial.emg_mv, trial.force_n, trial.fs, cfg.preprocess, envelope=trial.envelope
+    )
+    force_base = edm_forward(env, edm, cfg.fs)
+    force_calibrated = stage2.apply(edm_forward(stage1.apply(env), edm, cfg.fs))
+    return {
+        "time_s": trial.time_s,
+        "force_true": force,
+        "force_base": force_base,
+        "force_calibrated": force_calibrated,
+    }
+
+
+def collect_task_force_rows(
+    cfg: AppConfig,
+    edm: EDMParams,
+    day0_trials: list[TrialData],
+    session_trials: list[TrialData],
+    *,
+    split: str = "",
+) -> list[dict]:
+    """Build plot-ready rows for all task trials in a session."""
+    task_trials = trials_by_role(session_trials, TrialRole.TASK)
+    if not task_trials:
+        return []
+
+    stage1, stage2 = fit_cascade_stages(cfg, edm, day0_trials, session_trials)
+    rows: list[dict] = []
+    for trial in task_trials:
+        preds = task_force_predictions(trial, cfg, edm, stage1, stage2)
+        rows.append(
+            {
+                "split": split,
+                "session_id": trial.session_id,
+                "stem": Path(trial.source_file).stem,
+                "trial_id": trial.trial_id,
+                **preds,
+            }
+        )
+    return rows
 
 
 def run_arm(

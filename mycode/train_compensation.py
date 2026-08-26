@@ -50,6 +50,13 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, TensorDataset
 
+from models import (
+    DISPLAY_NAMES,
+    MODEL_NAMES,
+    build_model,
+    count_parameters,
+)
+
 # =========================================================
 # Settings
 # =========================================================
@@ -441,66 +448,12 @@ def records_to_xy(records, x_scaler, stride, label=""):
 
 
 # =========================================================
-# Model
 # =========================================================
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, max_len):
-        super().__init__()
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(max_len).unsqueeze(1).float()
-        div = torch.exp(
-            torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)
-        )
-        pe[:, 0::2] = torch.sin(position * div)
-        pe[:, 1::2] = torch.cos(position * div)
-        self.register_buffer("pe", pe.unsqueeze(0))
-
-    def forward(self, x):
-        return x + self.pe[:, :x.size(1)]
-
-
-class CompensationModel(nn.Module):
-    def __init__(self, n_features):
-        super().__init__()
-        self.conv = nn.Sequential(
-            nn.Conv1d(n_features, CONV_C, KERNEL, padding="same"),
-            nn.GroupNorm(num_groups=8, num_channels=CONV_C),
-            nn.GELU(),
-            nn.Conv1d(CONV_C, CONV_C, KERNEL, padding="same"),
-            nn.GroupNorm(num_groups=8, num_channels=CONV_C),
-            nn.GELU(),
-        )
-        self.lstm = nn.LSTM(CONV_C, LSTM_H, batch_first=True, bidirectional=True)
-        self.proj = nn.Linear(2 * LSTM_H, D_MODEL)
-        self.pos = PositionalEncoding(D_MODEL, SEQ)
-        layer = nn.TransformerEncoderLayer(
-            d_model=D_MODEL,
-            nhead=HEADS,
-            dim_feedforward=FF,
-            dropout=DROP,
-            batch_first=True,
-            norm_first=True,
-            activation="gelu",
-        )
-        self.encoder = nn.TransformerEncoder(
-            layer, num_layers=TF_LAYERS, enable_nested_tensor=False
-        )
-        self.head = nn.Sequential(
-            nn.LayerNorm(D_MODEL),
-            nn.Dropout(DROP),
-            nn.Linear(D_MODEL, 16),
-            nn.GELU(),
-            nn.Linear(16, 1),
-        )
-
-    def forward(self, x):
-        x = self.conv(x.transpose(1, 2)).transpose(1, 2)
-        x, _ = self.lstm(x)
-        x = self.proj(x)
-        x = self.pos(x)
-        x = self.encoder(x)
-        x = x.mean(dim=1)
-        return self.head(x).squeeze(-1)
+# Models
+#
+# All architectures live in models.py and share one interface:
+#   (batch, SEQ, n_features) -> (batch,) normalised compensation.
+# =========================================================
 
 
 def apply_warmup_lr(optimizer, step, warmup_steps, base_lr):
@@ -526,6 +479,11 @@ def run_epoch(model, loader, optimizer, loss_fn, train=True, warmup_state=None):
 
         pred = model(xb)
         loss = loss_fn(pred, yb)
+
+        # Physics-informed models add a residual term (see models.PINN).
+        aux = model.aux_loss() if hasattr(model, "aux_loss") else None
+        if aux is not None and torch.isfinite(aux):
+            loss = loss + aux
 
         # Guard: skip batches that already produce a non-finite loss.
         if not torch.isfinite(loss):
@@ -687,69 +645,91 @@ def save_training_loss_plot(history, run_summary, out_path, title_suffix=""):
     plt.close(fig)
 
 
-def save_force_plots(rows, out_dir):
-    """Save real / EDM base / predicted force line plots with metrics."""
+def save_comparison_plots(base_ref, model_rows, out_dir):
+    """One figure per test recording: real force, EDM base, and every model.
+
+    ``base_ref`` maps a file stem to the shared (t, y_true, y_base) arrays -
+    these are identical across models because the base model, scaler and window
+    stride are shared within a fold. ``model_rows`` maps model name -> stem ->
+    prediction row. Each legend entry carries that curve's RMSE.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
-    summary = []
 
-    for row in rows:
-        stem = row["path"].stem
-        t = row["t"]
-        y_true = row["y"]
-        y_hat = row["y_hat"]
-        y_base = row["y_base"]
-        final_m = row["final_metrics"]
-        base_m = row["base_metrics"]
+    cmap = plt.get_cmap("tab10")
+    colours = {
+        name: cmap(i % 10) for i, name in enumerate(sorted(model_rows))
+    }
 
-        step = max(1, len(t) // 5000)
+    for stem, ref in base_ref.items():
+        t, y_true, y_base = ref["t"], ref["y"], ref["y_base"]
+
+        step = max(1, len(t) // 4000)
         sl = slice(None, None, step)
 
-        fig, ax = plt.subplots(figsize=(12, 5))
-        ax.plot(t[sl], y_true[sl], label="Real Force", linewidth=1.2)
+        fig, ax = plt.subplots(figsize=(14, 6))
+        ax.plot(t[sl], y_true[sl], label="Real Force", linewidth=1.8,
+                color="black", zorder=5)
+
+        base_rmse = metrics(y_true, y_base)["RMSE"]
         ax.plot(
-            t[sl],
-            y_base[sl],
-            label="EDM Output (base model)",
-            linewidth=1.0,
-            alpha=0.85,
-            linestyle="--",
+            t[sl], y_base[sl],
+            label=f"EDM base model  (RMSE={base_rmse:.4f})",
+            linewidth=1.4, linestyle="--", color="dimgray", zorder=4,
         )
-        ax.plot(
-            t[sl],
-            y_hat[sl],
-            label="Predicted Force (base + compensation)",
-            linewidth=1.0,
-            alpha=0.85,
-        )
+
+        for name in sorted(model_rows):
+            row = model_rows[name].get(stem)
+            if row is None:
+                continue
+            rmse = row["final_metrics"]["RMSE"]
+            ax.plot(
+                t[sl], row["y_hat"][sl],
+                label=f"{DISPLAY_NAMES.get(name, name)}  (RMSE={rmse:.4f})",
+                linewidth=1.0, alpha=0.85, color=colours[name],
+            )
+
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Force")
-        ax.set_title(f"{row['session']} / {stem}: Real vs EDM vs Predicted Force")
-        ax.legend(loc="upper right")
+        ax.set_title(f"{ref['session']} / {stem}: real force vs EDM base vs models")
+        ax.legend(loc="upper right", fontsize=8, ncol=2, framealpha=0.9)
         ax.grid(True, alpha=0.3)
-
-        metric_text = (
-            f"Final  RMSE={final_m['RMSE']:.4f}  MAE={final_m['MAE']:.4f}  "
-            f"R2={final_m['R2']:.4f}     "
-            f"Base   RMSE={base_m['RMSE']:.4f}  MAE={base_m['MAE']:.4f}  "
-            f"R2={base_m['R2']:.4f}     "
-            f"session_gain={row['session_gain']:.4f}"
-        )
-        fig.text(0.5, 0.02, metric_text, ha="center", va="bottom", fontsize=9)
-        fig.subplots_adjust(bottom=0.18)
+        fig.tight_layout()
         fig.savefig(out_dir / f"{stem}.png", dpi=150)
         plt.close(fig)
 
-        summary.append(
-            {
-                "Session": row["session"],
-                "Data": stem,
-                "Session_Gain": row["session_gain"],
-                **{f"Base_{k}": v for k, v in base_m.items()},
-                **{f"Final_{k}": v for k, v in final_m.items()},
-            }
+
+def save_rmse_bar_plot(rows, out_dir, test_session):
+    """Bar chart of mean RMSE per model against the base model for this fold."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if not rows:
+        return
+
+    frame = pd.DataFrame(rows)
+    base_rmse = frame.groupby("Model")["Base_RMSE"].mean().mean()
+    per_model = frame.groupby("Model")["Final_RMSE"].mean().sort_values()
+
+    labels = [DISPLAY_NAMES.get(m, m) for m in per_model.index]
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    bars = ax.bar(labels, per_model.values, color="tab:blue", alpha=0.85)
+    ax.axhline(
+        base_rmse, color="crimson", linestyle="--", linewidth=1.5,
+        label=f"EDM base model (RMSE={base_rmse:.4f})",
+    )
+
+    for bar, value in zip(bars, per_model.values):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2, value,
+            f"{value:.4f}", ha="center", va="bottom", fontsize=8,
         )
 
-    return summary
+    ax.set_ylabel("Mean RMSE (lower is better)")
+    ax.set_title(f"Model comparison - held-out day: {test_session}")
+    ax.legend(loc="best")
+    ax.grid(True, axis="y", alpha=0.3)
+    plt.setp(ax.get_xticklabels(), rotation=20, ha="right")
+    fig.tight_layout()
+    fig.savefig(out_dir / "model_rmse_comparison.png", dpi=150)
+    plt.close(fig)
 
 
 def save_prediction_csvs(rows, out_dir):
@@ -799,78 +779,25 @@ def check_epoch_losses(train_loss, val_loss, train_skipped, train_batches, epoch
         sys.exit(1)
 
 
-def run_fold(test_session, val_session, args):
-    """Train on the remaining sessions, validate on one, test on a held-out day."""
+def train_one_model(model_name, train_ds, val_ds, n_features, args):
+    """Train one architecture. Every model starts from the same seed so the
+    comparison reflects architecture, not initialisation luck."""
     set_seed(SEED)
 
-    train_sessions = [
-        s for s in SESSIONS if s not in (test_session, val_session)
-    ]
-    train_paths = [p for s in train_sessions for p in session_files(s)]
-    val_paths = session_files(val_session)
-    test_paths = session_files(test_session)
+    train_loader = DataLoader(
+        train_ds, batch_size=BATCH, shuffle=True,
+        drop_last=True,  # Avoid batch-size-1 normalisation edge cases.
+    )
+    val_loader = DataLoader(val_ds, batch_size=BATCH, shuffle=False)
 
-    print(f"\n{'=' * 62}")
-    print(f"FOLD  test={test_session}  val={val_session}")
-    print(f"  train sessions : {', '.join(train_sessions)} ({len(train_paths)} files)")
-    print(f"  val   session  : {val_session} ({len(val_paths)} files)")
-    print(f"  test  session  : {test_session} ({len(test_paths)} files)")
-    print(f"{'=' * 62}", flush=True)
-
-    use_lpf = not args.no_lpf
-
-    # Base model is refitted on this fold's training sessions only.
-    print("Fitting base model on training sessions...", flush=True)
-    theta, base_result = fit_base_model(train_paths, use_lpf=use_lpf)
-    if use_lpf:
-        print(
-            f"  TANH gain={theta[0]:.4f} slope={theta[1]:.4f} | LPF fc={theta[2]:.2f} Hz"
-            f"  (cost={base_result.cost:.4f})",
-            flush=True,
-        )
-    else:
-        print(
-            f"  TANH gain={theta[0]:.4f} slope={theta[1]:.4f}"
-            f"  (cost={base_result.cost:.4f})",
-            flush=True,
-        )
-
-    train_records = build_records(train_paths, theta, args.calib_seconds, use_lpf)
-    val_records = build_records(val_paths, theta, args.calib_seconds, use_lpf)
-    test_records = build_records(test_paths, theta, args.calib_seconds, use_lpf)
-
-    gains = [r["session_gain"] for r in test_records]
+    model = build_model(model_name, n_features).to(DEVICE)
+    n_params = count_parameters(model)
     print(
-        f"  test session gains: min={min(gains):.4f} max={max(gains):.4f} "
-        f"mean={np.mean(gains):.4f}",
+        f"\n  --- {DISPLAY_NAMES.get(model_name, model_name)} "
+        f"({n_params:,} parameters) ---",
         flush=True,
     )
 
-    x_scaler = fit_feature_scaler(train_records)
-
-    print("Building windows...", flush=True)
-    X_train, Y_train = records_to_xy(train_records, x_scaler, args.stride, "train")
-    X_val, Y_val = records_to_xy(val_records, x_scaler, args.stride, "val")
-
-    train_loader = DataLoader(
-        TensorDataset(
-            tensor_from_numpy(X_train, "X_train"),
-            tensor_from_numpy(Y_train, "Y_train"),
-        ),
-        batch_size=BATCH,
-        shuffle=True,
-        drop_last=True,  # Avoid batch-size-1 normalisation edge cases.
-    )
-    val_loader = DataLoader(
-        TensorDataset(
-            tensor_from_numpy(X_val, "X_val"),
-            tensor_from_numpy(Y_val, "Y_val"),
-        ),
-        batch_size=BATCH,
-        shuffle=False,
-    )
-
-    model = CompensationModel(X_train.shape[2]).to(DEVICE)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=0.0, weight_decay=WD, eps=1e-7
     )
@@ -893,7 +820,6 @@ def run_fold(test_session, val_session, args):
     early_stopped = False
     early_stop_epoch = None
 
-    print("Training...", flush=True)
     for epoch in range(1, args.epochs + 1):
         train_loss, train_skipped, train_batches = run_epoch(
             model, train_loader, optimizer, loss_fn, train=True,
@@ -934,7 +860,7 @@ def run_fold(test_session, val_session, args):
         )
 
         print(
-            f"  Epoch {epoch:3d}/{args.epochs} | train={train_loss:.6f} "
+            f"    Epoch {epoch:3d}/{args.epochs} | train={train_loss:.6f} "
             f"val={val_loss:.6f} lr={optimizer.param_groups[0]['lr']:.2e}"
             + (" *" if improved else ""),
             flush=True,
@@ -943,7 +869,7 @@ def run_fold(test_session, val_session, args):
         if stale >= EARLY_STOP_PATIENCE:
             early_stopped = True
             early_stop_epoch = epoch
-            print(f"  Early stopping at epoch {epoch} (best = {best_epoch})")
+            print(f"    Early stopping at epoch {epoch} (best = {best_epoch})")
             break
 
     if early_stop_epoch is None:
@@ -951,8 +877,8 @@ def run_fold(test_session, val_session, args):
 
     if not np.isfinite(best_val) or state_has_nonfinite(best_state):
         print(
-            "ERROR: Training finished without a finite validation loss or with "
-            "non-finite best weights; refusing to continue.",
+            f"ERROR: {model_name} finished without a finite validation loss or "
+            f"with non-finite best weights; refusing to continue.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -965,81 +891,178 @@ def run_fold(test_session, val_session, args):
         "early_stop_epoch": early_stop_epoch,
         "early_stopped": early_stopped,
         "total_epochs": len(history),
+        "n_params": n_params,
     }
+    return model, best_state, history, run_summary
+
+
+def run_fold(test_session, val_session, args):
+    """Train every selected model on the same fold and compare them.
+
+    The base model, records, scaler and windows are built once and shared, so
+    all architectures see byte-identical inputs.
+    """
+    train_sessions = [
+        s for s in SESSIONS if s not in (test_session, val_session)
+    ]
+    train_paths = [p for s in train_sessions for p in session_files(s)]
+    val_paths = session_files(val_session)
+    test_paths = session_files(test_session)
+
+    print(f"\n{'=' * 70}")
+    print(f"FOLD  test={test_session}  val={val_session}")
+    print(f"  train sessions : {', '.join(train_sessions)} ({len(train_paths)} files)")
+    print(f"  val   session  : {val_session} ({len(val_paths)} files)")
+    print(f"  test  session  : {test_session} ({len(test_paths)} files)")
+    print(f"{'=' * 70}", flush=True)
+
+    use_lpf = not args.no_lpf
+
+    # Base model is refitted on this fold's training sessions only.
+    print("Fitting base model on training sessions...", flush=True)
+    theta, base_result = fit_base_model(train_paths, use_lpf=use_lpf)
+    if use_lpf:
+        print(
+            f"  TANH gain={theta[0]:.4f} slope={theta[1]:.4f} | "
+            f"LPF fc={theta[2]:.2f} Hz  (cost={base_result.cost:.4f})",
+            flush=True,
+        )
+    else:
+        print(
+            f"  TANH gain={theta[0]:.4f} slope={theta[1]:.4f}"
+            f"  (cost={base_result.cost:.4f})",
+            flush=True,
+        )
+
+    train_records = build_records(train_paths, theta, args.calib_seconds, use_lpf)
+    val_records = build_records(val_paths, theta, args.calib_seconds, use_lpf)
+    test_records = build_records(test_paths, theta, args.calib_seconds, use_lpf)
+
+    gains = [r["session_gain"] for r in test_records]
+    print(
+        f"  test session gains: min={min(gains):.4f} max={max(gains):.4f} "
+        f"mean={np.mean(gains):.4f}",
+        flush=True,
+    )
+
+    x_scaler = fit_feature_scaler(train_records)
+
+    print("Building windows (shared by all models)...", flush=True)
+    X_train, Y_train = records_to_xy(train_records, x_scaler, args.stride, "train")
+    X_val, Y_val = records_to_xy(val_records, x_scaler, args.stride, "val")
+
+    train_ds = TensorDataset(
+        tensor_from_numpy(X_train, "X_train"),
+        tensor_from_numpy(Y_train, "Y_train"),
+    )
+    val_ds = TensorDataset(
+        tensor_from_numpy(X_val, "X_val"),
+        tensor_from_numpy(Y_val, "Y_val"),
+    )
+    n_features = X_train.shape[2]
 
     fold_dir = OUT / "lodo" / f"test_{test_session}"
     fold_dir.mkdir(parents=True, exist_ok=True)
 
-    save_training_loss_plot(
-        history,
-        run_summary,
-        fold_dir / "training_loss.png",
-        title_suffix=f"  (test = {test_session})",
-    )
+    base_ref = {}
+    model_rows = {}
+    csv_rows = []
 
-    val_base_rmse, val_final_rmse = split_rmse(
-        model, val_records, x_scaler, args.stride
-    )
+    for model_name in args.models:
+        model, best_state, history, summary = train_one_model(
+            model_name, train_ds, val_ds, n_features, args
+        )
 
-    print("Predicting held-out test day...", flush=True)
-    test_rows = predict_records(model, test_records, x_scaler, args.stride)
-    file_summary = save_force_plots(test_rows, fold_dir / "test")
+        save_training_loss_plot(
+            history, summary,
+            fold_dir / f"training_loss_{model_name}.png",
+            title_suffix=(
+                f"  ({DISPLAY_NAMES.get(model_name, model_name)}, "
+                f"test = {test_session})"
+            ),
+        )
+
+        val_base_rmse, val_final_rmse = split_rmse(
+            model, val_records, x_scaler, args.stride
+        )
+        test_rows = predict_records(model, test_records, x_scaler, args.stride)
+
+        model_rows[model_name] = {}
+        for row in test_rows:
+            stem = row["path"].stem
+            model_rows[model_name][stem] = row
+            base_ref.setdefault(
+                stem,
+                {
+                    "t": row["t"],
+                    "y": row["y"],
+                    "y_base": row["y_base"],
+                    "session": row["session"],
+                },
+            )
+            csv_rows.append(
+                {
+                    "Test_Session": test_session,
+                    "Val_Session": val_session,
+                    "Model": model_name,
+                    "Model_Name": DISPLAY_NAMES.get(model_name, model_name),
+                    "Data": stem,
+                    "Session_Gain": row["session_gain"],
+                    "N_Params": summary["n_params"],
+                    "Best_Epoch": summary["best_epoch"],
+                    **{f"Base_{k}": v for k, v in row["base_metrics"].items()},
+                    **{f"Final_{k}": v for k, v in row["final_metrics"].items()},
+                }
+            )
+
+        base_rmse = float(np.mean([r["base_metrics"]["RMSE"] for r in test_rows]))
+        final_rmse = float(np.mean([r["final_metrics"]["RMSE"] for r in test_rows]))
+        final_r2 = float(np.mean([r["final_metrics"]["R2"] for r in test_rows]))
+        improved = sum(
+            1 for r in test_rows
+            if r["final_metrics"]["RMSE"] < r["base_metrics"]["RMSE"]
+        )
+        print(
+            f"    -> val RMSE={val_final_rmse:.4f} (base {val_base_rmse:.4f}) | "
+            f"test RMSE={final_rmse:.4f} (base {base_rmse:.4f}) "
+            f"R2={final_r2:.4f} | improved {improved}/{len(test_rows)}",
+            flush=True,
+        )
+
+        if args.save_all:
+            save_checkpoint(best_state, fold_dir / f"model_{model_name}.pt")
+            save_prediction_csvs(test_rows, fold_dir / f"test_csv_{model_name}")
+            pd.DataFrame(history).to_csv(
+                fold_dir / f"training_history_{model_name}.csv", index=False
+            )
+
+    print("\n  Writing comparison plots...", flush=True)
+    save_comparison_plots(base_ref, model_rows, fold_dir / "test")
+    save_rmse_bar_plot(csv_rows, fold_dir, test_session)
+
     if not args.images_only:
-        pd.DataFrame(file_summary).to_csv(
+        pd.DataFrame(csv_rows).to_csv(
             fold_dir / "per_file_metrics.csv", index=False
         )
 
     if args.save_all:
-        save_prediction_csvs(test_rows, fold_dir / "test_csv")
-        save_checkpoint(best_state, fold_dir / "model.pt")
-        pd.DataFrame(history).to_csv(fold_dir / "training_history.csv", index=False)
         (fold_dir / "fold_config.json").write_text(
             json.dumps(
                 {
                     "test_session": test_session,
                     "val_session": val_session,
                     "train_sessions": train_sessions,
+                    "models": list(args.models),
                     "base_theta": theta.tolist(),
                     "use_lpf": use_lpf,
                     "calib_seconds": args.calib_seconds,
                     "stride": args.stride,
-                    **run_summary,
                 },
                 indent=2,
             )
         )
 
-    base_rmse = float(np.mean([r["Base_RMSE"] for r in file_summary]))
-    final_rmse = float(np.mean([r["Final_RMSE"] for r in file_summary]))
-    base_r2 = float(np.mean([r["Base_R2"] for r in file_summary]))
-    final_r2 = float(np.mean([r["Final_R2"] for r in file_summary]))
-    improved_files = sum(
-        1 for r in file_summary if r["Final_RMSE"] < r["Base_RMSE"]
-    )
-
-    print(
-        f"\n  FOLD RESULT (test = {test_session})\n"
-        f"    val  : base RMSE={val_base_rmse:.4f}  final RMSE={val_final_rmse:.4f}\n"
-        f"    test : base RMSE={base_rmse:.4f}  final RMSE={final_rmse:.4f}\n"
-        f"    test : base R2  ={base_r2:.4f}  final R2  ={final_r2:.4f}\n"
-        f"    files improved by compensation: {improved_files}/{len(file_summary)}",
-        flush=True,
-    )
-
-    return {
-        "Test_Session": test_session,
-        "Val_Session": val_session,
-        "Train_Sessions": "+".join(train_sessions),
-        "N_Test_Files": len(file_summary),
-        "Best_Epoch": best_epoch,
-        "Val_Base_RMSE": val_base_rmse,
-        "Val_Final_RMSE": val_final_rmse,
-        "Base_RMSE": base_rmse,
-        "Final_RMSE": final_rmse,
-        "Base_R2": base_r2,
-        "Final_R2": final_r2,
-        "Files_Improved": improved_files,
-    }
+    return csv_rows
 
 
 # =========================================================
@@ -1047,14 +1070,32 @@ def run_fold(test_session, val_session, args):
 # =========================================================
 def parse_args():
     p = argparse.ArgumentParser(
-        description="Leave-One-Day-Out cross-day compensation training"
+        description="Leave-One-Day-Out cross-day compensation training",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Available models:\n  "
+            + "\n  ".join(
+                f"{name:26s} {DISPLAY_NAMES.get(name, name)}"
+                for name in MODEL_NAMES
+            )
+            + "\n\nExample:\n"
+            "  python train_compensation.py --models lstm transformer mamba \\\n"
+            "      --stride 20 --epochs 30 --calib-seconds 10"
+        ),
+    )
+    p.add_argument(
+        "--models", nargs="+", default=["all"], metavar="MODEL",
+        help=(
+            "Models to train and compare. Use 'all' for every model. "
+            f"Choices: all {' '.join(MODEL_NAMES)}"
+        ),
     )
     p.add_argument(
         "--stride", type=int, default=WINDOW_STRIDE,
         help="Window stride (higher = less RAM/time). Try 10 or 20 on a laptop.",
     )
     p.add_argument("--batch", type=int, default=BATCH, help="Batch size.")
-    p.add_argument("--epochs", type=int, default=MAX_EPOCHS, help="Max epochs per fold.")
+    p.add_argument("--epochs", type=int, default=MAX_EPOCHS, help="Max epochs per model.")
     p.add_argument(
         "--calib-seconds", type=float, default=0.0,
         help=(
@@ -1080,8 +1121,8 @@ def parse_args():
     outputs.add_argument(
         "--images-only", action="store_true",
         help=(
-            "Save only PNGs (result plots and the training-loss curve). "
-            "Writes no CSV files; metrics are still printed to the console."
+            "Save only PNGs plus the final model-comparison CSV. Suppresses the "
+            "per-fold CSVs; metrics are still printed to the console."
         ),
     )
     p.add_argument(
@@ -1091,12 +1132,28 @@ def parse_args():
     return p.parse_args()
 
 
+def resolve_models(requested):
+    if "all" in requested:
+        return list(MODEL_NAMES)
+    unknown = [m for m in requested if m not in MODEL_NAMES]
+    if unknown:
+        print(
+            f"ERROR: unknown model(s): {', '.join(unknown)}\n"
+            f"Choices: all {' '.join(MODEL_NAMES)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    # Preserve registry order so output tables are stable.
+    return [m for m in MODEL_NAMES if m in requested]
+
+
 def main():
     global BATCH
 
     args = parse_args()
     args.stride = max(1, args.stride)
     BATCH = max(1, args.batch)
+    args.models = resolve_models(args.models)
 
     if args.debug_anomaly:
         torch.autograd.set_detect_anomaly(True)
@@ -1124,60 +1181,74 @@ def main():
 
     print("DEVICE =", DEVICE)
     print("Sessions:", ", ".join(SESSIONS))
-    print(f"Folds to run: {', '.join(test_sessions)}")
+    print(f"Folds to run : {', '.join(test_sessions)}")
+    print(f"Models       : {', '.join(args.models)}")
     print(
         f"stride={args.stride} batch={BATCH} epochs={args.epochs} "
         f"calib_seconds={args.calib_seconds} lpf={not args.no_lpf}"
     )
 
-    results = []
+    all_rows = []
     for test_session in test_sessions:
         # Validation is a different held-out day, rotating deterministically.
         i = SESSIONS.index(test_session)
         val_session = SESSIONS[(i + 1) % len(SESSIONS)]
-        results.append(run_fold(test_session, val_session, args))
+        all_rows.extend(run_fold(test_session, val_session, args))
 
-    df = pd.DataFrame(results)
-    if not args.images_only:
-        summary_path = OUT / "lodo" / "lodo_summary.csv"
-        summary_path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_csv(summary_path, index=False)
+    frame = pd.DataFrame(all_rows)
 
-    print(f"\n{'=' * 62}")
-    print("LEAVE-ONE-DAY-OUT SUMMARY")
-    print(f"{'=' * 62}")
+    # The single combined results file: RMSE and R2 for every model on every
+    # data file. Always written - it is the deliverable of the comparison.
+    out_dir = OUT / "lodo"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    combined_path = out_dir / "model_comparison.csv"
+    frame.to_csv(combined_path, index=False)
+
+    print(f"\n{'=' * 70}")
+    print("MODEL COMPARISON  (mean over all test files, per held-out day)")
+    print(f"{'=' * 70}")
+
+    pivot = frame.pivot_table(
+        index="Model_Name", columns="Test_Session",
+        values="Final_RMSE", aggfunc="mean",
+    )
+    base_by_fold = frame.groupby("Test_Session")["Base_RMSE"].mean()
+    pivot.loc["EDM base model"] = base_by_fold
+    print(pivot.round(4).to_string())
+
+    print(f"\n{'=' * 70}")
+    print("OVERALL  (mean +- std across folds)")
+    print(f"{'=' * 70}")
+    overall = frame.groupby("Model_Name").agg(
+        RMSE_mean=("Final_RMSE", "mean"),
+        RMSE_std=("Final_RMSE", "std"),
+        R2_mean=("Final_R2", "mean"),
+        MAE_mean=("Final_MAE", "mean"),
+        Params=("N_Params", "first"),
+    ).sort_values("RMSE_mean")
+    print(overall.round(4).to_string())
     print(
-        df[
-            [
-                "Test_Session", "Base_RMSE", "Final_RMSE",
-                "Base_R2", "Final_R2", "Files_Improved", "N_Test_Files",
-            ]
-        ].to_string(index=False)
+        f"\nEDM base model     RMSE={frame['Base_RMSE'].mean():.4f}  "
+        f"R2={frame['Base_R2'].mean():.4f}"
     )
 
+    beat = frame[frame["Final_RMSE"] < frame["Base_RMSE"]]
     print(
-        f"\nMean across folds: base RMSE={df['Base_RMSE'].mean():.4f} "
-        f"(+-{df['Base_RMSE'].std():.4f})  "
-        f"final RMSE={df['Final_RMSE'].mean():.4f} "
-        f"(+-{df['Final_RMSE'].std():.4f})"
+        f"\nFiles where a model beat the base model: "
+        f"{len(beat)}/{len(frame)}"
     )
-
-    total_improved = int(df["Files_Improved"].sum())
-    total_files = int(df["N_Test_Files"].sum())
-    folds_improved = int((df["Final_RMSE"] < df["Base_RMSE"]).sum())
-    print(
-        f"Folds where compensation beat the base model: "
-        f"{folds_improved}/{len(df)}"
-    )
-    print(f"Files where compensation beat the base model: {total_improved}/{total_files}")
-
-    if folds_improved == 0:
+    if len(beat) == 0:
         print(
-            "\nGATE FAILED: compensation did not beat the base model on any fold.\n"
-            "Do not tune the architecture yet - the scale/gain handling is still "
-            "wrong. Try --calib-seconds 10 first."
+            "\nGATE FAILED: no model beat the base model on any file.\n"
+            "Do not tune architectures yet - check the scale/gain handling. "
+            "Try --calib-seconds 10 first."
         )
-    print(f"\nSaved to: {(OUT / 'lodo').resolve()}")
+
+    if not args.images_only:
+        overall.to_csv(out_dir / "model_summary.csv")
+
+    print(f"\nCombined results CSV : {combined_path.resolve()}")
+    print(f"Plots and per-fold outputs: {out_dir.resolve()}")
 
 
 if __name__ == "__main__":

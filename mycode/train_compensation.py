@@ -94,6 +94,16 @@ FC_MAX = 200.0
 # Recording sessions, in chronological order. Splits never mix these.
 SESSIONS = ["1st_Comp", "2nd_Comp", "3rd_Base", "4th_Valid", "5th_Comp"]
 
+# Sessions that may never serve as test or validation, only as training data.
+# 5th_Comp sits a factor ~1.9 below every other session's force/sEMG gain, so
+# holding it out makes the fold a pure extrapolation rather than a test of
+# cross-day transfer. It is far more useful inside training, where it widens
+# the gain range the model has seen.
+TRAIN_ONLY_SESSIONS = ["5th_Comp"]
+
+# Sessions eligible to be held out as test or validation.
+EVAL_SESSIONS = [s for s in SESSIONS if s not in TRAIN_ONLY_SESSIONS]
+
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "Data"
 OUT = Path(__file__).resolve().parent / "Estimation"
@@ -1111,7 +1121,10 @@ def parse_args():
     )
     p.add_argument(
         "--test-sessions", nargs="+", default=None, metavar="SESSION",
-        help=f"Run only these folds. Choices: {' '.join(SESSIONS)}",
+        help=(
+            f"Run only these folds. Eligible: {' '.join(EVAL_SESSIONS)}. "
+            f"Training-only (never test/val): {' '.join(TRAIN_ONLY_SESSIONS)}"
+        ),
     )
     outputs = p.add_mutually_exclusive_group()
     outputs.add_argument(
@@ -1158,12 +1171,21 @@ def main():
     if args.debug_anomaly:
         torch.autograd.set_detect_anomaly(True)
 
-    test_sessions = args.test_sessions or SESSIONS
+    test_sessions = args.test_sessions or EVAL_SESSIONS
     unknown = [s for s in test_sessions if s not in SESSIONS]
     if unknown:
         print(
             f"ERROR: unknown session(s): {', '.join(unknown)}\n"
             f"Choices: {', '.join(SESSIONS)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    blocked = [s for s in test_sessions if s in TRAIN_ONLY_SESSIONS]
+    if blocked:
+        print(
+            f"ERROR: {', '.join(blocked)} is training-only and cannot be a test "
+            f"fold.\nEligible test sessions: {', '.join(EVAL_SESSIONS)}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -1180,8 +1202,9 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
 
     print("DEVICE =", DEVICE)
-    print("Sessions:", ", ".join(SESSIONS))
-    print(f"Folds to run : {', '.join(test_sessions)}")
+    print("Sessions      :", ", ".join(SESSIONS))
+    print(f"Training-only : {', '.join(TRAIN_ONLY_SESSIONS)} (never test/val)")
+    print(f"Folds to run  : {', '.join(test_sessions)}")
     print(f"Models       : {', '.join(args.models)}")
     print(
         f"stride={args.stride} batch={BATCH} epochs={args.epochs} "
@@ -1190,9 +1213,12 @@ def main():
 
     all_rows = []
     for test_session in test_sessions:
-        # Validation is a different held-out day, rotating deterministically.
-        i = SESSIONS.index(test_session)
-        val_session = SESSIONS[(i + 1) % len(SESSIONS)]
+        # Validation is another eligible held-out day, chosen by a fixed
+        # rotation. It must NOT be picked for similarity to the test day: that
+        # would need the test day's force statistics, which are unavailable
+        # when a model is selected for deployment.
+        i = EVAL_SESSIONS.index(test_session)
+        val_session = EVAL_SESSIONS[(i + 1) % len(EVAL_SESSIONS)]
         all_rows.extend(run_fold(test_session, val_session, args))
 
     frame = pd.DataFrame(all_rows)

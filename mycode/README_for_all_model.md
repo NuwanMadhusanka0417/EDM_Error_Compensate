@@ -5,7 +5,7 @@ python train_compensation.py --models lstm transformer mamba --stride 20 --epoch
 
 ## Run All models
 ```powershell
-python train_compensation.py --models all --test-sessions 5th_Comp --stride 200 --epochs 15 --calib-seconds 10
+python train_compensation.py --models all --test-sessions 5th_Comp --stride 20 --epochs 100 --calib-seconds 10
 ```
 
 
@@ -17,3 +17,11 @@ Config	Batches/epoch	All-7 time
 --stride 20	~1050	~60 min/epoch
 --stride 100	~210	~12 min/epoch
 --stride 200	~105	~6 min/epoch
+
+
+
+## Run for withing days and days zeperatly
+
+python train_compensation.py --models all --stride 20 --epochs 100 --calib-seconds 10
+
+python train_within_day.py --models all --stride 20 --epochs 100 --calib-seconds 10

@@ -1,0 +1,240 @@
+#!/bin/bash
+#PBS -P mi23
+#PBS -q gpuvolta
+#PBS -l walltime=48:00:00
+#PBS -l ncpus=12
+#PBS -l ngpus=1
+#PBS -l mem=190GB
+#PBS -l jobfs=50GB
+#PBS -l storage=gdata/jq77+scratch/jq77+scratch/mi23
+#PBS -N edm_paper
+#PBS -j oe
+#PBS -o edm_paper_pbs.log
+# =============================================================================
+# Full experiment set for the EDM compensation paper.
+#
+#   E1_crossday   Leave-One-Day-Out, 4 folds, 5th_Comp training-only. MAIN RESULT.
+#   E2_withinday  Within-day splits, 3 rotating folds per session. SUPPORTING.
+#   E3_nocalib    E1 without per-session gain calibration.          ABLATION.
+#   E4_nolpf      E1 with a static TANH base model (no LPF).        ABLATION.
+#
+# Submit:
+#     qsub run_paper_experiments.pbs
+#
+# Run a subset instead (same file):
+#     qsub -v EXPS="E1 E2" run_paper_experiments.pbs
+#
+# Everything lands in one timestamped directory and is packed into a single
+# .tar.gz for copying home. Existing results are backed up, never deleted.
+#
+# If the queue rejects 48h, drop walltime to 24:00:00 above and submit twice:
+#     qsub -v EXPS="E1 E2" run_paper_experiments.pbs
+#     qsub -v EXPS="E3 E4" run_paper_experiments.pbs
+# =============================================================================
+
+set -o pipefail
+
+CODE_DIR=/scratch/mi23/nuwan/Japan/EDM_Error_Compensate/mycode
+VENV=/scratch/jq77/nk8155/tft_env
+
+# Shared settings. Keep these identical across experiments so the ablations are
+# comparable with the main result.
+STRIDE=20
+EPOCHS=100
+CALIB=10
+DAY_FOLDS=3
+
+EXPS="${EXPS:-E1 E2 E3 E4}"
+
+# -----------------------------------------------------------------------------
+# Environment (module first, then venv, so the venv's python wins on PATH)
+# -----------------------------------------------------------------------------
+module purge
+module load python3/3.9.2
+source "${VENV}/bin/activate"
+
+cd "${CODE_DIR}" || { echo "FATAL: cannot cd to ${CODE_DIR}"; exit 1; }
+
+STAMP="$(date +%Y%m%d_%H%M%S)"
+JOBTAG="${PBS_JOBID:-interactive}"
+RESULTS="${CODE_DIR}/Estimation/paper_runs/${STAMP}"
+LOGDIR="${RESULTS}/logs"
+mkdir -p "${LOGDIR}" || { echo "FATAL: cannot create ${LOGDIR}"; exit 1; }
+
+echo "============================================================"
+echo " EDM compensation - paper experiment set"
+echo " job        : ${JOBTAG}"
+echo " node       : $(hostname)"
+echo " started    : $(date)"
+echo " code dir   : ${CODE_DIR}"
+echo " results    : ${RESULTS}"
+echo " experiments: ${EXPS}"
+echo " settings   : stride=${STRIDE} epochs=${EPOCHS} calib=${CALIB}s day_folds=${DAY_FOLDS}"
+echo "============================================================"
+
+# -----------------------------------------------------------------------------
+# Provenance: what was actually run, so results stay reproducible
+# -----------------------------------------------------------------------------
+{
+    echo "job            : ${JOBTAG}"
+    echo "node           : $(hostname)"
+    echo "date           : $(date)"
+    echo "code dir       : ${CODE_DIR}"
+    echo "venv           : ${VENV}"
+    echo "python         : $(which python)"
+    echo "python version : $(python --version 2>&1)"
+    echo "settings       : stride=${STRIDE} epochs=${EPOCHS} calib=${CALIB} day_folds=${DAY_FOLDS}"
+    echo
+    echo "--- git ---"
+    git -C "${CODE_DIR}" rev-parse HEAD 2>/dev/null || echo "(not a git checkout)"
+    git -C "${CODE_DIR}" status --short 2>/dev/null
+    echo
+    echo "--- modules ---"
+    module list 2>&1
+    echo
+    echo "--- gpu ---"
+    nvidia-smi 2>&1 || echo "(nvidia-smi unavailable)"
+    echo
+    echo "--- torch ---"
+    python -c "import torch; print('torch', torch.__version__); print('cuda', torch.cuda.is_available(), torch.version.cuda)" 2>&1
+    echo
+    echo "--- pip freeze ---"
+    pip freeze 2>&1
+} > "${LOGDIR}/environment.txt"
+
+# -----------------------------------------------------------------------------
+# Protect any results already sitting in the default output directories
+# -----------------------------------------------------------------------------
+for d in lodo within_day; do
+    if [ -d "${CODE_DIR}/Estimation/${d}" ]; then
+        backup="${CODE_DIR}/Estimation/_backup_${d}_${STAMP}"
+        echo "NOTE: existing Estimation/${d} moved to $(basename "${backup}")"
+        mv "${CODE_DIR}/Estimation/${d}" "${backup}"
+    fi
+done
+
+# -----------------------------------------------------------------------------
+# run_exp <label> <output-dir-produced-by-script> <command...>
+# -----------------------------------------------------------------------------
+declare -a SUMMARY=()
+
+run_exp () {
+    local label="$1"; shift
+    local outdir="$1"; shift
+
+    echo
+    echo "------------------------------------------------------------"
+    echo ">>> ${label}  started $(date '+%H:%M:%S')"
+    echo ">>> $*"
+    echo "------------------------------------------------------------"
+
+    local t0 status
+    t0=$(date +%s)
+
+    if "$@" > "${LOGDIR}/${label}.log" 2>&1; then
+        status="OK"
+    else
+        status="FAILED(rc=$?)"
+    fi
+
+    local mins=$(( ($(date +%s) - t0) / 60 ))
+
+    if [ -d "${CODE_DIR}/Estimation/${outdir}" ]; then
+        mv "${CODE_DIR}/Estimation/${outdir}" "${RESULTS}/${label}"
+    else
+        echo ">>> WARNING: ${label} produced no ${outdir}/ directory"
+        status="${status}/no-output"
+    fi
+
+    echo ">>> ${label} ${status} in ${mins} min"
+    tail -n 25 "${LOGDIR}/${label}.log"
+    SUMMARY+=("${label}  ${status}  ${mins} min")
+}
+
+want () { case " ${EXPS} " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+# -----------------------------------------------------------------------------
+# E1 - MAIN: cross-day Leave-One-Day-Out (5th_Comp is training-only)
+# -----------------------------------------------------------------------------
+if want E1; then
+    run_exp E1_crossday lodo \
+        python train_compensation.py \
+            --models all --stride ${STRIDE} --epochs ${EPOCHS} \
+            --calib-seconds ${CALIB} --save-all
+fi
+
+# -----------------------------------------------------------------------------
+# E2 - SUPPORTING: within-day, 3 rotating folds per session
+# -----------------------------------------------------------------------------
+if want E2; then
+    run_exp E2_withinday within_day \
+        python train_within_day.py \
+            --models all --day-folds ${DAY_FOLDS} --stride ${STRIDE} \
+            --epochs ${EPOCHS} --calib-seconds ${CALIB} --save-all
+fi
+
+# -----------------------------------------------------------------------------
+# E3 - ABLATION: no per-session gain calibration (omit --calib-seconds)
+# -----------------------------------------------------------------------------
+if want E3; then
+    run_exp E3_nocalib lodo \
+        python train_compensation.py \
+            --models all --stride ${STRIDE} --epochs ${EPOCHS} --save-all
+fi
+
+# -----------------------------------------------------------------------------
+# E4 - ABLATION: static TANH base model, no LPF dynamics
+# -----------------------------------------------------------------------------
+if want E4; then
+    run_exp E4_nolpf lodo \
+        python train_compensation.py \
+            --models all --stride ${STRIDE} --epochs ${EPOCHS} \
+            --calib-seconds ${CALIB} --no-lpf --save-all
+fi
+
+# -----------------------------------------------------------------------------
+# Collect the headline CSVs where they are easy to find
+# -----------------------------------------------------------------------------
+mkdir -p "${RESULTS}/key_csv"
+find "${RESULTS}" -maxdepth 3 \
+     \( -name "model_comparison.csv" \
+     -o -name "within_day_comparison.csv" \
+     -o -name "model_summary.csv" \
+     -o -name "within_day_summary.csv" \) -print0 2>/dev/null |
+while IFS= read -r -d '' f; do
+    exp="$(basename "$(dirname "${f}")")"
+    cp "${f}" "${RESULTS}/key_csv/${exp}__$(basename "${f}")"
+done
+
+{
+    echo "EDM compensation - paper experiment set"
+    echo "job     : ${JOBTAG}"
+    echo "finished: $(date)"
+    echo "settings: stride=${STRIDE} epochs=${EPOCHS} calib=${CALIB}s day_folds=${DAY_FOLDS}"
+    echo
+    echo "Experiments"
+    printf '  %s\n' "${SUMMARY[@]}"
+    echo
+    echo "Layout"
+    echo "  E*_<name>/        per-experiment plots, per-fold CSVs, checkpoints"
+    echo "  key_csv/          the combined result CSVs, collected together"
+    echo "  logs/             full stdout per experiment + environment.txt"
+} > "${RESULTS}/MANIFEST.txt"
+
+# -----------------------------------------------------------------------------
+# One archive to copy home
+# -----------------------------------------------------------------------------
+ARCHIVE="${CODE_DIR}/Estimation/paper_runs/edm_paper_${STAMP}.tar.gz"
+tar -czf "${ARCHIVE}" -C "${CODE_DIR}/Estimation/paper_runs" "${STAMP}"
+
+echo
+echo "============================================================"
+cat "${RESULTS}/MANIFEST.txt"
+echo "============================================================"
+echo "Archive : ${ARCHIVE}"
+echo "Size    : $(du -h "${ARCHIVE}" | cut -f1)"
+echo
+echo "Copy to your laptop with:"
+echo "  scp nk8155@gadi.nci.org.au:${ARCHIVE} ."
+echo "============================================================"
+echo "finished: $(date)"

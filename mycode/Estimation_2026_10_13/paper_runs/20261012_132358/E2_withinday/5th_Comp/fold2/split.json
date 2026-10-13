@@ -1,0 +1,25 @@
+{
+  "session": "5th_Comp",
+  "fold": 2,
+  "train": [
+    "Data7",
+    "Data8",
+    "Data9",
+    "Data1",
+    "Data10",
+    "Data2"
+  ],
+  "val": [
+    "Data6"
+  ],
+  "test": [
+    "Data3",
+    "Data4",
+    "Data5"
+  ],
+  "base_theta": [
+    0.4787785889267711,
+    1.1531193413896108,
+    3.0225937522341924
+  ]
+}

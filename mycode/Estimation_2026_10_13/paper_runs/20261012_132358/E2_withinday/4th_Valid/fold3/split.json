@@ -1,0 +1,28 @@
+{
+  "session": "4th_Valid",
+  "fold": 3,
+  "train": [
+    "Data1",
+    "Data10",
+    "Data11",
+    "Data12",
+    "Data13",
+    "Data2",
+    "Data3",
+    "Data4"
+  ],
+  "val": [
+    "Data9"
+  ],
+  "test": [
+    "Data5",
+    "Data6",
+    "Data7",
+    "Data8"
+  ],
+  "base_theta": [
+    49.99998395763807,
+    0.021695261616771662,
+    3.480055015611809
+  ]
+}

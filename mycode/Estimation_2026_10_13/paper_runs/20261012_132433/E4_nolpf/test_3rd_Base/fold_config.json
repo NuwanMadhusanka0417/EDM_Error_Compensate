@@ -1,0 +1,25 @@
+{
+  "test_session": "3rd_Base",
+  "val_session": "4th_Valid",
+  "train_sessions": [
+    "1st_Comp",
+    "2nd_Comp",
+    "5th_Comp"
+  ],
+  "models": [
+    "conv_bilstm_transformer",
+    "conv_bilstm",
+    "lstm",
+    "transformer",
+    "synergy_ssm",
+    "mamba",
+    "pinn"
+  ],
+  "base_theta": [
+    5.187695993951798,
+    0.5639123691275547
+  ],
+  "use_lpf": false,
+  "calib_seconds": 10.0,
+  "stride": 20
+}

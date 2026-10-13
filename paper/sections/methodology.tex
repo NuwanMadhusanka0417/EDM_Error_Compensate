@@ -1,0 +1,503 @@
+%==============================================================================
+% Section III: Methodology
+%
+% Included from main.tex via \input{sections/methodology}
+% Compile main.tex, not this file.
+%==============================================================================
+
+%==============================================================================
+\section{Methodology}
+\label{sec:method}
+
+%------------------------------------------------------------------------------
+\subsection{Problem Formulation}
+\label{sec:formulation}
+
+Let $x(t)$ denote the preprocessed surface electromyography (sEMG) envelope and
+let $y(t)$ denote the simultaneously measured force. A physics-based base model
+produces an estimate $\hat{y}_{\mathrm{base}}(t)$ from the sEMG signal alone.
+This estimate captures the behaviour that the assumed physiology predicts, but
+it leaves a systematic residual. We therefore write the final force estimate as
+the sum of the base model output and a learned correction,
+\begin{equation}
+  \hat{y}(t) \;=\; \hat{y}_{\mathrm{base}}(t) \;+\; \Delta(t),
+  \label{eq:decomposition}
+\end{equation}
+where $\Delta(t)$ is produced by a neural network from a window of recent
+observations.
+
+This decomposition is deliberate. The base model carries the part of the
+relationship that is known in advance and that transfers between recording
+sessions, while the network is asked only to explain what the base model cannot.
+Compared with training a network to predict force directly, this keeps the
+learned component small, makes its contribution measurable against an explicit
+baseline, and ensures that a failure of the network degrades the estimate
+towards the physics-based prediction rather than towards an arbitrary one.
+
+%------------------------------------------------------------------------------
+\subsection{Dataset}
+\label{sec:dataset}
+
+The dataset comprises 42 recordings collected across five sessions. Each
+recording contains a time channel, a rectified sEMG channel, a low-pass filtered
+sEMG channel, and a measured force channel, sampled at \SI{2}{\kilo\hertz}
+($T_s = \SI{0.5}{\milli\second}$). This work uses the low-pass filtered sEMG
+channel as the model input and the force channel as the target. Recordings in
+four of the sessions are \SI{25}{\second} long (50{,}000 samples) and those in
+the remaining session are \SI{15}{\second} long (30{,}000 samples).
+
+Throughout this paper a session refers to a single electrode setup rather than
+simply a calendar date. Within one session the electrodes were applied once and
+left in place, so all recordings in that session share the same electrode
+position, skin preparation and contact impedance. Between sessions the entire
+setup was renewed. This distinction matters because the relationship between
+sEMG amplitude and produced force is sensitive to exactly those factors.
+
+Table~\ref{tab:sessions} summarises the sessions. For each recording we
+characterise the input to output relationship by a single gain, defined as the
+ratio of the 99th percentile of force to the 99th percentile of normalised sEMG.
+The per-session median of this quantity varies from 0.44 to 5.86, a factor of
+roughly thirteen between the extreme sessions, and the ordering is close to
+monotonic across the five sessions. Variation of this magnitude means that a
+model fitted on one session will systematically over- or under-predict on
+another unless the gain is explicitly accounted for. Section~\ref{sec:calibration}
+describes how we handle it.
+
+\begin{table}[!t]
+\caption{Recording sessions. The gain is the ratio of the 99th percentile force
+to the 99th percentile normalised sEMG, reported as the per-session median.}
+\label{tab:sessions}
+\centering
+\begin{tabular}{lrrrrl}
+\toprule
+Session & Files & Dur.~(s) & $F_{99}$ & Gain & Role \\
+\midrule
+1st\_Comp  & 5  & 25 & 3.68 & 3.70 & test / val / train \\
+2nd\_Comp  & 9  & 25 & 5.56 & 5.86 & test / val / train \\
+3rd\_Base  & 5  & 25 & 0.82 & 0.83 & test / val / train \\
+4th\_Valid & 13 & 15 & 1.11 & 1.12 & test / val / train \\
+5th\_Comp  & 10 & 25 & 0.44 & 0.44 & training only \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%------------------------------------------------------------------------------
+\subsection{Per-Recording sEMG Normalisation}
+\label{sec:semgnorm}
+
+Each recording is normalised by its own amplitude statistics before entering the
+model. We divide by the 99th percentile of the positive sEMG samples in that
+recording,
+\begin{equation}
+  x_n(t) \;=\; \frac{x(t)}
+                    {\mathrm{p}_{99}\{\,x(\tau) \;:\; x(\tau) > 0\,\}} ,
+  \label{eq:semgnorm}
+\end{equation}
+using a percentile rather than the maximum so that isolated spikes do not set
+the scale.
+
+This step removes the component of between-session variation that originates in
+electrode gain and contact quality. It is important to note that the
+normalisation constant is computed from the input signal only. The sEMG signal
+is available at deployment time, so the same quantity can be computed for a new
+recording without any knowledge of the force that is being predicted. The
+normalisation therefore introduces no label leakage, and this remains true when
+the recording comes from a session the model has never seen.
+
+%------------------------------------------------------------------------------
+\subsection{Base Model}
+\label{sec:basemodel}
+
+The base model combines a static saturating nonlinearity with first-order
+dynamics. The nonlinearity represents the compressive relationship between
+muscle activation and produced force at higher activation levels, and the
+dynamics represent the delay and smoothing introduced by the electromechanical
+coupling between electrical activity and measurable force. The two stages are
+\begin{align}
+  z(t) &= g \,\tanh\!\big(s\, x_n(t)\big), \label{eq:tanh} \\
+  G(\mathrm{s}) &= \frac{\omega_c}{\mathrm{s} + \omega_c},
+                   \qquad \omega_c = 2\pi f_c, \label{eq:lpf}
+\end{align}
+where $g$ is a gain, $s$ shapes the saturation, and $f_c$ is the cutoff
+frequency of the first-order stage. The continuous-time filter in
+\eqref{eq:lpf} is discretised with the bilinear transform. Writing
+$K = 2/T_s$, the resulting difference equation has numerator coefficients
+$b_0 = b_1 = \omega_c/(K + \omega_c)$ and denominator coefficient
+$a_1 = (\omega_c - K)/(K + \omega_c)$, and the base model output is
+$\hat{y}_{\mathrm{base}} = G\{z\}$.
+
+Including the first-order stage is necessary rather than cosmetic. When force is
+plotted against sEMG for a single recording, the trajectory forms a hysteresis
+loop: the force observed at a given sEMG level differs depending on whether the
+contraction is building or releasing (Fig.~\ref{fig:hysteresis}). A static
+nonlinearity is single-valued by construction and cannot reproduce this
+behaviour, no matter how its parameters are chosen. The ablation in
+Section~\ref{sec:ablation-lpf} quantifies what is lost when the stage is removed.
+
+\begin{figure}[!t]
+\centering
+% \includegraphics[width=\columnwidth]{force_vs_semg_hysteresis.png}
+\caption{Force plotted against normalised sEMG for representative recordings.
+The trajectories form hysteresis loops, so the force observed at a given sEMG
+level differs between the rising and falling phases of a contraction. A static
+nonlinearity is single-valued and cannot represent this, which motivates the
+first-order stage in \eqref{eq:lpf}.}
+\label{fig:hysteresis}
+\end{figure}
+
+The three parameters $\{g, s, f_c\}$ are estimated by nonlinear least squares
+using a trust region reflective algorithm, with $g$ and $s$ constrained to
+$[0, 50]$ and $f_c$ constrained to $[1, 200]\,\si{\hertz}$. The fit is performed
+on the concatenated residuals of all training recordings of a given fold. No
+recording that will later be used for validation or testing contributes to the
+fit, and the base model is refitted independently for each fold so that this
+holds throughout.
+
+%------------------------------------------------------------------------------
+\subsection{Per-Session Gain Calibration}
+\label{sec:calibration}
+
+Because the input to output gain varies substantially across sessions, a single
+fitted base model cannot serve all of them. We therefore estimate one scalar
+gain per recording from a short calibration segment, which mirrors the practical
+protocol of performing a brief reference contraction when electrodes are fitted.
+
+Let $\mathcal{C}$ denote the set of samples in the calibration segment. The
+calibration gain is the least squares scaling that best aligns the base model
+output with the measured force over that segment,
+\begin{equation}
+  \gamma \;=\; \frac{\sum_{t \in \mathcal{C}} y(t)\, \hat{y}_{\mathrm{base}}(t)}
+                    {\sum_{t \in \mathcal{C}} \hat{y}_{\mathrm{base}}(t)^2},
+  \label{eq:gain}
+\end{equation}
+and the calibrated base output is $\gamma \hat{y}_{\mathrm{base}}$.
+
+The placement of the calibration segment requires care. Taking the first ten
+seconds of each recording is not sufficient, because several recordings begin
+with an extended rest period during which both the force and the base model
+output are close to zero. Estimating \eqref{eq:gain} from such a segment is
+dominated by noise and collapses the gain towards zero. We therefore locate the
+segment by activity. The onset is the first sample at which the uncalibrated
+base model output exceeds twenty percent of its 95th percentile for that
+recording, and the calibration segment is the contiguous window of
+\SI{10}{\second} beginning at that onset. The detector operates on the base model
+output, which is a deterministic function of the sEMG signal, so the choice of
+where to calibrate never consults the force channel. The window is additionally
+constrained so that at least a quarter of the recording, and never fewer than one
+full input window, remains available afterwards, which matters for the shorter
+recordings. Estimated gains are clipped to $[10^{-3}, 10^{3}]$, and a gain that
+reaches either bound is reported as a failed calibration rather than used
+silently.
+
+Two properties of this procedure should be stated explicitly. First, the force
+channel is used inside the calibration segment, which is legitimate because a
+reference contraction of known force is part of the deployment protocol rather
+than information unavailable at test time. Second, every sample up to and
+including the end of the calibration segment is excluded from evaluation. No
+reported metric is computed on data that contributed to the calibration.
+
+%------------------------------------------------------------------------------
+\subsection{Residual Target}
+\label{sec:target}
+
+The quantity the network predicts is a scale-relative residual rather than the
+raw error. For each recording we define
+\begin{equation}
+  \delta(t) \;=\; \frac{y(t) - \gamma \hat{y}_{\mathrm{base}}(t)}{\sigma},
+  \qquad
+  \sigma \;=\; \mathrm{p}_{95}\big\{\,\big|\gamma \hat{y}_{\mathrm{base}}\big|\,\big\},
+  \label{eq:target}
+\end{equation}
+with $\sigma$ computed separately for each recording. At inference the network
+output is multiplied by $\sigma$ before being added back in
+\eqref{eq:decomposition}.
+
+The reason for normalising per recording rather than fitting a single scaler on
+the training set is specific to the cross-session setting. A global scaler stores
+the mean and standard deviation of the residuals observed during training. Its
+inverse transform then adds that stored mean to every prediction, including
+predictions made on a new session whose residuals have a different magnitude and
+frequently a different sign. The effect is a constant offset inherited from the
+training sessions, applied to data the scaler was never fitted on. Defining the
+target relative to $\sigma$ avoids this, because $\sigma$ is recomputed for each
+new recording. Note also that $\sigma$ depends only on the base model output and
+the calibration gain, both of which are available at deployment time.
+
+%------------------------------------------------------------------------------
+\subsection{Input Representation and Windowing}
+\label{sec:inputs}
+
+The network receives two input channels: the normalised sEMG $x_n$ and the
+calibrated base model output divided by $\sigma$. Supplying the base model output
+alongside the raw signal lets the network judge the correction in the context of
+what the base model already predicted, rather than having to reconstruct that
+prediction internally. Both channels are standardised by a scaler fitted on the
+training recordings of the fold and applied unchanged to validation and test
+recordings.
+
+Inputs are formed as sliding windows of $L = 100$ samples, corresponding to
+\SI{50}{\milli\second} at the \SI{2}{\kilo\hertz} sampling rate. Windows are
+extracted with a stride of 20 samples, which reduces the strong redundancy
+between neighbouring windows and keeps training time manageable without
+discarding information that a stride of one would preserve. The network predicts
+the residual at the final sample of each window, so no window contains
+information from after the instant being predicted. Windows whose target sample
+falls inside the calibration segment are discarded.
+
+%------------------------------------------------------------------------------
+\subsection{Compensation Architectures}
+\label{sec:models}
+
+Seven architectures are compared. Each maps a window
+$\mathbf{X} \in \mathbb{R}^{L \times 2}$ to a scalar residual, so they are
+interchangeable within the pipeline described above. Layer widths were chosen so
+that parameter counts remain within one order of magnitude of each other
+(Table~\ref{tab:models}). This matters for interpretation: a comparison in which
+one model has far more capacity than the others measures capacity rather than
+inductive bias. Every model is followed by the same prediction head, consisting
+of layer normalisation, dropout, a linear layer to 16 units with a GELU
+activation, and a final linear layer to a scalar.
+
+\subsubsection{Convolutional BiLSTM Transformer}
+\label{sec:cbt}
+
+This is the reference architecture and combines three mechanisms. A
+convolutional stem of two one-dimensional convolutions with kernel size three,
+each followed by group normalisation and a GELU activation, extracts local
+waveform morphology. A bidirectional LSTM with 48 hidden units per direction then
+accumulates context in both temporal directions. The result is projected to a
+48-dimensional representation, given sinusoidal positional encodings, and passed
+through two pre-norm Transformer encoder layers with four attention heads and a
+feedforward width of 96. Features are mean pooled over time before the head. The
+model has 78{,}417 parameters. Its inclusion tests whether combining local,
+recurrent and attention-based processing is beneficial for this task.
+
+\subsubsection{Convolutional BiLSTM}
+\label{sec:cbl}
+
+This architecture removes the Transformer encoder and retains the convolutional
+stem followed by a two-layer bidirectional LSTM with 64 hidden units per
+direction. With 155{,}297 parameters it is the largest model in the comparison.
+It isolates the contribution of self-attention: any difference relative to
+Section~\ref{sec:cbt} is attributable to the attention stage rather than to the
+convolutional or recurrent components.
+
+\subsubsection{Long Short-Term Memory Network}
+\label{sec:lstm}
+
+A two-layer unidirectional LSTM with 96 hidden units, applied directly to the
+input channels with no convolutional front end, provides a conventional
+recurrent baseline. The hidden state at the final timestep is passed to the head.
+The model has 114{,}657 parameters. Unlike the bidirectional variants it is
+strictly causal within the window, which makes it the closest of the seven to a
+model that could run in real time on a streaming signal.
+
+\subsubsection{Transformer Encoder}
+\label{sec:transformer}
+
+This architecture uses attention alone. The input is projected linearly to 64
+dimensions, given sinusoidal positional encodings, and processed by three
+pre-norm encoder layers with four attention heads and a feedforward width of 128,
+followed by mean pooling. It has 101{,}793 parameters. Because it has neither
+recurrence nor convolution, all temporal structure must be recovered through
+positional encoding and attention, which tests how much of the task depends on
+explicitly sequential processing.
+
+\subsubsection{Synergy State-Space Network}
+\label{sec:synergy}
+
+This architecture is motivated by the muscle synergy view of motor control, in
+which descending commands are expressed as a small number of non-negative
+activation primitives that are then filtered by muscle activation dynamics. The
+input is projected onto $K = 16$ non-negative primitives and expanded to a bank
+of first-order states,
+\begin{align}
+  \mathbf{u}(t) &= \mathrm{softplus}\!\big(\mathbf{W}\mathbf{x}(t)\big),
+  \label{eq:synergy_u} \\
+  \mathbf{h}(t) &= \mathbf{a} \odot \mathbf{h}(t-1)
+                 + (\mathbf{1} - \mathbf{a}) \odot \mathbf{V}\mathbf{u}(t),
+  \label{eq:synergy_h}
+\end{align}
+where $\mathbf{a} = \sigma(\boldsymbol{\theta}) \in (0,1)^{S}$ holds a learned
+decay per state. The decays are initialised across a range of time constants so
+that different states can specialise to fast and slow components of force
+development. The state trajectory is mixed by a two-layer network before pooling.
+The model has 70{,}481 parameters.
+
+One limitation must be stated plainly. Classical synergy decomposition operates
+on many simultaneously recorded EMG channels, and identifies groups of muscles
+that are activated together. The present dataset provides a single sEMG channel,
+so the layer in \eqref{eq:synergy_u} acts as a low-rank non-negative bottleneck
+with associated activation dynamics rather than as a genuine multi-muscle synergy
+extraction. We include it because the resulting inductive bias, namely a small
+set of non-negative drives filtered by first-order dynamics, remains a reasonable
+prior for this signal, but the architecture should not be read as a test of
+synergy theory.
+
+\subsubsection{Selective State-Space Model}
+\label{sec:mamba}
+
+This architecture follows the selective state-space formulation, in which the
+discretisation step and the input and output projections of a diagonal state
+space model are themselves functions of the input. The recurrence is
+\begin{align}
+  \mathbf{h}(t) &= \exp\!\big(\Delta_t \mathbf{A}\big)\,\mathbf{h}(t-1)
+                 + \Delta_t \mathbf{B}_t\, x_t, \label{eq:mamba_h} \\
+  y_t &= \mathbf{C}_t^{\!\top}\mathbf{h}(t) + D\, x_t, \label{eq:mamba_y}
+\end{align}
+where $\mathbf{A}$ is diagonal and negative, ensuring stability, and
+$\Delta_t$, $\mathbf{B}_t$ and $\mathbf{C}_t$ are produced from the input at each
+timestep. The block also contains a short depthwise causal convolution and a
+gated residual branch. We use a model dimension of 64, a state dimension of 8,
+and a single block, giving 30{,}770 parameters, the fewest of the seven models.
+Input-dependent discretisation allows the effective time constant to vary with
+the signal, which is attractive for a task in which the relevant timescale
+changes between rapid onsets and slow sustained contractions.
+
+We implement the selective scan directly in PyTorch rather than using the fused
+CUDA kernels of the reference implementation. The computation is equivalent, but
+the sequential scan over 100 timesteps is considerably slower, which is why a
+single block is used. This affects training time only and not the reported
+accuracy.
+
+\subsubsection{Physics-Informed Neural Network}
+\label{sec:pinn}
+
+The final architecture adds an explicit dynamics prior to the loss. A
+convolutional and bidirectional gated recurrent backbone emits a residual at
+every timestep of the window rather than only at the last, which makes it
+possible to evaluate a differential constraint across the window. Let $f(t)$
+denote the reconstructed normalised force obtained by adding the predicted
+residual sequence to the base model channel. The physics term penalises departure
+from the same first-order relationship assumed by the base model in
+\eqref{eq:lpf},
+\begin{equation}
+  \mathcal{L}_{\mathrm{phys}} \;=\;
+  \Big\langle \Big( \tau \frac{\mathrm{d}f}{\mathrm{d}t} + f
+                    - \big(w\, x_n + b\big) \Big)^{2} \Big\rangle,
+  \label{eq:pinn}
+\end{equation}
+where the derivative is approximated by a first difference and $\tau$, $w$ and
+$b$ are learned jointly with the network weights. The total objective is
+$\mathcal{L}_{\mathrm{data}} + \lambda \mathcal{L}_{\mathrm{phys}}$. Only the
+prediction at the final timestep contributes to the data term, so this model is
+evaluated on exactly the same quantity as the other six. The model has 40{,}132
+parameters. Because the inputs are standardised, the constraint holds only up to
+an affine transformation of the input, which the learned $w$ and $b$ absorb.
+
+\begin{table}[!t]
+\caption{Compensation architectures compared. All share the same prediction
+head and are trained with identical settings.}
+\label{tab:models}
+\centering
+\begin{tabular}{llr}
+\toprule
+Model & Primary mechanism & Params \\
+\midrule
+Conv-BiLSTM-Transformer & convolution, recurrence, attention & 78{,}417 \\
+Conv-BiLSTM             & convolution and recurrence         & 155{,}297 \\
+LSTM                    & recurrence, causal                 & 114{,}657 \\
+Transformer             & self-attention                     & 101{,}793 \\
+Synergy-SSM             & non-negative bottleneck with SSM   & 70{,}481 \\
+Selective SSM (Mamba)   & input-dependent state space        & 30{,}770 \\
+PINN                    & dynamics-constrained residual      & 40{,}132 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%------------------------------------------------------------------------------
+\subsection{Training Protocol}
+\label{sec:training}
+
+All models are trained with identical settings. We use the AdamW optimiser with
+a base learning rate of $3 \times 10^{-4}$ and weight decay of $10^{-4}$,
+minimising a Huber loss on the normalised residual. The learning rate is warmed
+up linearly over the first 500 optimiser steps and thereafter controlled by a
+plateau scheduler that halves the rate after five epochs without improvement in
+validation loss, down to a floor of $10^{-6}$. Gradients are clipped to a maximum
+norm of one. Training runs for at most 100 epochs with early stopping after 15
+epochs without improvement, and the weights from the epoch with the lowest
+validation loss are restored before evaluation. The batch size is 64, and the
+final incomplete batch of each epoch is dropped to avoid degenerate normalisation
+statistics.
+
+Several guards protect against silent failure. Batches that produce a non-finite
+loss, or whose gradient norm is not finite, are skipped rather than applied, and
+training aborts if more than twenty percent of the batches in an epoch are
+skipped. Training also aborts if an epoch yields no finite validation loss, and
+checkpoints containing non-finite weights are refused rather than written.
+
+Two aspects of the protocol exist specifically to make the architecture
+comparison fair. First, within a fold all seven models are trained on byte
+identical inputs: the base model, the calibration gains, the feature scaler and
+the extracted windows are all computed once and shared. Second, the random seed
+is reset to the same value before each model is constructed, so differences
+between models cannot be attributed to initialisation or to data ordering. The
+only variable that changes between the seven runs is the architecture itself.
+
+%------------------------------------------------------------------------------
+\subsection{Evaluation Protocol}
+\label{sec:protocol}
+
+We evaluate under two protocols that answer different questions.
+
+\subsubsection{Within-day evaluation}
+
+Recordings from a single session are partitioned into training, validation and
+test subsets, and the model never sees data from any other session. This measures
+whether the residual can be learned at all when the recording conditions are held
+fixed, and provides a reference point that is free of between-session variation.
+Splits are performed at the level of whole recordings. This is essential rather
+than conventional: consecutive samples in these signals are correlated at
+approximately 0.99, so dividing a single recording into training and test
+portions would place heavily overlapping windows on both sides of the boundary
+and the reported error would be optimistic. Three rotating splits are run per
+session so that different recordings serve as the test set, and results are
+averaged across them.
+
+\subsubsection{Cross-day evaluation}
+
+One session is held out entirely for testing, a second is used for validation,
+and the remaining sessions are used for training. The procedure is repeated so
+that each eligible session serves once as the test session. This matches the
+deployment scenario, in which a model trained on previously recorded sessions is
+applied to a new electrode setup.
+
+The validation session is selected by a fixed rotation among the eligible
+sessions. We deliberately do not select it by similarity to the test session.
+Doing so would require knowing the test session's force statistics, which are
+precisely what is unavailable when a model must be chosen for deployment, and
+would make the reported performance optimistic.
+
+One session is designated as training data only and never serves as a test or
+validation session. Its gain lies a factor of roughly two below that of every
+other session, so holding it out would measure extrapolation beyond the range of
+gains seen in training rather than transfer between comparable sessions. Its
+value lies in training, where it widens the range of conditions the model has
+observed. The extrapolation case is informative in its own right and is reported
+separately in Section~\ref{sec:extrapolation}.
+
+%------------------------------------------------------------------------------
+\subsection{Metrics}
+\label{sec:metrics}
+
+We report root mean squared error (RMSE), mean absolute error (MAE) and the
+coefficient of determination ($R^2$), each computed per recording and then
+averaged. Every metric is computed on the evaluation segment only, that is, after
+the calibration segment has been excluded. For every result we report the
+corresponding base model performance on exactly the same samples, so that the
+contribution of the learned compensation is always visible against the physics
+based baseline rather than in isolation.
+
+RMSE is treated as the primary metric. The reason concerns the behaviour of
+$R^2$ on this dataset and should be understood before reading the results. The
+coefficient of determination measures error relative to the variance of the
+target within each recording. Several recordings contain long low-activity
+intervals and consequently have small force variance, so a modest absolute error
+produces a large negative $R^2$. Averaging such values across recordings yields
+aggregate figures that are negative even where absolute error is clearly reduced,
+and those figures are dominated by the least informative recordings rather than
+by overall accuracy. We therefore rank methods by RMSE and MAE, which are
+expressed in the units of the measured force and are comparable across
+recordings, and report $R^2$ alongside them for completeness rather than as the
+basis for any conclusion.

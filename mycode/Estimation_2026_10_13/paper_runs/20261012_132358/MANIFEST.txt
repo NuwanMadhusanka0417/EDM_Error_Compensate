@@ -1,0 +1,13 @@
+EDM compensation - paper experiment set
+job     : 181021935.gadi-pbs
+finished: Mon Oct 12 16:54:48 AEDT 2026
+settings: stride=20 epochs=100 calib=10s day_folds=3
+
+Experiments
+  E1_crossday  OK  122 min
+  E2_withinday  OK  88 min
+
+Layout
+  E*_<name>/        per-experiment plots, per-fold CSVs, checkpoints
+  key_csv/          the combined result CSVs, collected together
+  logs/             full stdout per experiment + environment.txt

@@ -1,0 +1,82 @@
+# =============================================================================
+# Python
+# =============================================================================
+__pycache__/
+*.pyc
+*.pyo
+
+# =============================================================================
+# Raw data
+#
+# The recordings are not distributed through git. Keep the folder structure
+# but exclude the CSV files themselves.
+# =============================================================================
+Data/**/*.csv
+
+# =============================================================================
+# Experiment outputs
+#
+# Keep in git  : metrics CSVs, run logs, manifests, fold configs, summary plots.
+# Exclude      : checkpoints, archives, per-recording time series and plots.
+#
+# Figures used in the paper are copied into paper/figures/ and tracked there,
+# so they live beside the text that cites them.
+# =============================================================================
+
+# Live output directory of the training scripts. Completed runs are renamed to
+# Estimation_<date>/ before being committed.
+mycode/Estimation/
+
+# Model checkpoints and archives: large, binary, and regenerable from the code
+# plus the recorded configuration.
+mycode/Estimation_*/**/*.pt
+mycode/Estimation_*/**/*.tar.gz
+
+# Per-recording prediction time series written by --save-all (~95 MB).
+mycode/Estimation_*/**/test_csv_*/
+
+# Per-recording comparison and loss plots (~58 MB). The aggregate
+# model_rmse_comparison.png per fold is small and stays tracked.
+mycode/Estimation_2026_10_13/**/test/*.png
+mycode/Estimation_2026_10_13/**/training_loss_*.png
+
+# Copies of the August run inside the October folder. The originals are tracked
+# under mycode/Estimation_2026_08_27/.
+mycode/Estimation_2026_10_13/26th_aug/
+mycode/Estimation_2026_10_13/lodo_26_aug/
+mycode/Estimation_2026_10_13/test_26_aug/
+mycode/Estimation_2026_10_13/_backup_*/
+
+# =============================================================================
+# LaTeX build artifacts
+#
+# main.pdf is intentionally NOT ignored, so co-authors can read the current
+# build without a LaTeX installation. Add it below if you prefer otherwise.
+# =============================================================================
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.fdb_latexmk
+paper/*.fls
+paper/*.lof
+paper/*.log
+paper/*.lot
+paper/*.out
+paper/*.synctex.gz
+paper/*.toc
+paper/sections/*.aux
+
+# =============================================================================
+# Local notes and scratch
+# =============================================================================
+mycode/NCI_command.md
+EDM.md
+calibration/data/
+calibration/results/
+.pytest_cache/
+
+# =============================================================================
+# OS
+# =============================================================================
+.DS_Store
+Thumbs.db

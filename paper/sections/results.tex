@@ -1,0 +1,288 @@
+%==============================================================================
+% Section IV: Experiments and Results
+%
+% Included from main.tex via \input{sections/results}
+% Compile main.tex, not this file.
+%==============================================================================
+\section{Experiments and Results}
+\label{sec:results}
+
+%------------------------------------------------------------------------------
+\subsection{Experimental Design}
+\label{sec:design}
+
+Four experiments were run, summarised in Table~\ref{tab:experiments}. The first
+two correspond to the evaluation protocols of Section~\ref{sec:protocol} and
+form the main results. The remaining two are ablations that remove one component
+of the method at a time while holding everything else fixed. All four use the
+same window length, stride, optimiser settings and epoch budget, so differences
+between them are attributable to the stated change alone.
+
+\begin{table}[!t]
+\caption{Experiments. All use a window of 100 samples with stride 20, a maximum
+of 100 epochs with early stopping, and a \SI{10}{\second} calibration window
+unless stated otherwise.}
+\label{tab:experiments}
+\centering
+\begin{tabular}{llp{3.0cm}}
+\toprule
+ID & Configuration & Question addressed \\
+\midrule
+E1 & Cross-day, four folds & Performance in the deployment setting \\
+E2 & Within-day, three folds per session & Behaviour when between-session variation is removed \\
+E3 & E1 without gain calibration & Contribution of calibration \\
+E4 & E1 with a static base model & Contribution of base model dynamics \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All experiments were run on a single NVIDIA V100 GPU. Training the seven
+architectures took 122 minutes for the four cross-day folds, 88 minutes for the
+fifteen within-day folds, and 128 minutes for the dynamics ablation.
+
+%------------------------------------------------------------------------------
+\subsection{Cross-Day Performance}
+\label{sec:crossday}
+
+Table~\ref{tab:crossday} reports cross-day results. Each column is a session
+held out entirely from training and validation, and each entry is the mean RMSE
+over the recordings of that session. The row labelled EDM base model gives the
+performance of the calibrated base model on exactly the same samples, so every
+compensated result can be read against its own baseline.
+
+\begin{table*}[!t]
+\caption{Cross-day (leave-one-day-out) RMSE per held-out session. Lower is
+better. The best compensated result in each column is shown in bold. Every
+model improves on the base model in every fold.}
+\label{tab:crossday}
+\centering
+\begin{tabular}{lrrrrrr}
+\toprule
+Model & 1st\_Comp & 2nd\_Comp & 3rd\_Base & 4th\_Valid & Overall RMSE & Overall MAE \\
+\midrule
+EDM base model          & 0.4884 & 1.0793 & 0.1890 & 0.3659 & 0.5581 & 0.4461 \\
+\midrule
+Transformer             & \textbf{0.3923} & 0.9310 & \textbf{0.1342} & \textbf{0.2450} & \textbf{0.4436} & 0.3252 \\
+Conv-BiLSTM             & 0.4435 & 0.9138 & 0.1436 & 0.2480 & 0.4495 & 0.3310 \\
+PINN                    & 0.4384 & 0.9063 & 0.1458 & 0.2557 & 0.4501 & 0.3363 \\
+LSTM                    & 0.4536 & \textbf{0.8915} & 0.1488 & 0.2638 & 0.4520 & 0.3314 \\
+Conv-BiLSTM-Transformer & 0.4482 & 0.9258 & 0.1396 & 0.2521 & 0.4547 & 0.3371 \\
+Selective SSM (Mamba)   & 0.4716 & 0.9010 & 0.1494 & 0.2750 & 0.4622 & 0.3448 \\
+Synergy-SSM             & 0.4637 & 0.8972 & 0.1574 & 0.2830 & 0.4644 & 0.3441 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+The compensator improves on the base model in every fold and for every
+architecture. Taken over all held-out recordings, the best model reduces RMSE
+from 0.5581 to 0.4436, a relative reduction of 20.5 percent, and even the
+weakest of the seven reaches 0.4644, a reduction of 16.8 percent. Of the 224
+model and recording combinations, 175 (78 percent) show lower error than the
+base model on the same samples.
+
+The size of the improvement varies with the held-out session. It is smallest for
+2nd\_Comp (17.4 percent), which has the largest force range and the highest gain
+of the four, and largest for 4th\_Valid (33.0 percent) and 3rd\_Base
+(29.0 percent), whose gains sit near the middle of the range spanned by the
+training sessions. The improvement on 1st\_Comp is 19.7 percent. This ordering is
+consistent with the interpretation developed in Section~\ref{sec:extrapolation}:
+the method performs best when the held-out session is well inside the range of
+conditions represented in training.
+
+A one-sided reading of these numbers would be unwarranted without testing them,
+so we treat each held-out recording as a paired observation and compare each
+model against the base model with a Wilcoxon signed-rank test over the 32 test
+recordings. All seven architectures improve on the base model at
+$p < 4 \times 10^{-4}$, with the strongest evidence for the PINN
+($p = 5.9 \times 10^{-7}$, improving on 28 of 32 recordings) and the Transformer
+and Conv-BiLSTM ($p = 1.3 \times 10^{-5}$, 26 of 32 each). The benefit of
+compensation is therefore consistent across recordings rather than driven by a
+few favourable cases.
+
+%------------------------------------------------------------------------------
+\subsection{Within-Day Performance}
+\label{sec:withinday}
+
+Table~\ref{tab:withinday} reports the within-day results, in which training and
+testing use different recordings from the same session. Across all 36 held-out
+recordings the picture is markedly weaker than in the cross-day setting. Only
+two of the seven architectures achieve a lower aggregate RMSE than the base
+model, and the best of them improves on it by 2.9 percent, compared with
+20.5 percent across sessions.
+
+\begin{table}[!t]
+\caption{Within-day RMSE, averaged over three rotating folds per session. The
+base model is placed in rank order so that models falling below it are visible
+directly.}
+\label{tab:withinday}
+\centering
+\begin{tabular}{lrr}
+\toprule
+Model & Overall RMSE & Overall MAE \\
+\midrule
+PINN                    & \textbf{0.4343} & 0.3354 \\
+Synergy-SSM             & 0.4467 & 0.3474 \\
+\textit{EDM base model} & \textit{0.4473} & \textit{0.3562} \\
+Conv-BiLSTM             & 0.4481 & 0.3513 \\
+Selective SSM (Mamba)   & 0.4498 & 0.3593 \\
+Transformer             & 0.4610 & 0.3645 \\
+LSTM                    & 0.4624 & 0.3719 \\
+Conv-BiLSTM-Transformer & 0.4633 & 0.3673 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+This aggregate requires careful interpretation, because it is not representative
+of the individual sessions. Averaging RMSE over recordings whose force ranges
+differ by more than an order of magnitude gives disproportionate weight to the
+session with the largest absolute errors. Here that session is 2nd\_Comp, which
+contributes nine of the 36 held-out recordings and has errors near 1.1, roughly
+twenty times those of 5th\_Comp. The PINN is the only architecture that improves
+on the base model on 2nd\_Comp, which is the main reason it leads the aggregate.
+
+Examined session by session, the result is more favourable. In every one of the
+five sessions at least one architecture achieves a lower RMSE than the base
+model: by 7.9 percent on 1st\_Comp, 3.6 percent on 2nd\_Comp, 13.2 percent on
+3rd\_Base, 13.9 percent on 4th\_Valid and 11.5 percent on 5th\_Comp. What does
+not hold is consistency. The architecture that performs best differs between
+sessions, and no architecture improves on the base model in all five. Over all
+model and recording combinations, 168 of 252 (67 percent) improve on the base
+model, compared with 78 percent in the cross-day setting.
+
+The contrast with Section~\ref{sec:crossday} is the main finding of this
+experiment, and it runs opposite to the usual expectation that within-session
+evaluation is the easier case. The explanation is the amount of training data
+available. A cross-day fold trains on 24 to 28 recordings, whereas a within-day
+fold trains on between three and nine recordings from a single session. Removing
+between-session variation also removes most of the training set, and for this
+task the loss of data outweighs the gain in homogeneity. A secondary factor is
+that per-session calibration (Section~\ref{sec:calibration}) already absorbs much
+of the between-session gain variation before the network sees the data, so the
+cross-day setting is less disadvantaged than it would otherwise be.
+
+%------------------------------------------------------------------------------
+\subsection{Ablation: Per-Session Gain Calibration}
+\label{sec:ablation-calib}
+
+% PENDING. E3 did not complete: two concurrently submitted jobs wrote to the
+% same output directory, and the first to finish relocated the directory while
+% E3 was still running. The run must be repeated in isolation before this
+% subsection can be written.
+%
+% Expected content once available:
+%   - cross-day RMSE for base and all seven models with calibration disabled
+%   - comparison against Table IV to isolate the contribution of calibration
+%   - this supports the paper's central methodological claim, so it should be
+%     reported with the same per-fold detail as Section IV-B
+
+%------------------------------------------------------------------------------
+\subsection{Ablation: Base Model Dynamics}
+\label{sec:ablation-lpf}
+
+Section~\ref{sec:basemodel} argued that the first-order stage is required
+because the force to sEMG relationship is not single-valued. To test this, the
+cross-day experiment was repeated with the first-order stage removed, leaving a
+purely static saturating nonlinearity. All other settings were unchanged.
+
+\begin{table}[!t]
+\caption{Effect of removing the first-order stage from the base model. Values
+are cross-day RMSE over all held-out recordings.}
+\label{tab:lpf}
+\centering
+\begin{tabular}{lrr}
+\toprule
+ & With dynamics & Static only \\
+\midrule
+EDM base model          & 0.5581 & 0.5683 \\
+Transformer             & \textbf{0.4436} & 0.4665 \\
+Conv-BiLSTM             & 0.4495 & 0.4687 \\
+Conv-BiLSTM-Transformer & 0.4547 & 0.4697 \\
+PINN                    & 0.4501 & 0.4845 \\
+LSTM                    & 0.4520 & 0.4913 \\
+Synergy-SSM             & 0.4644 & 0.4917 \\
+Selective SSM (Mamba)   & 0.4622 & 0.4929 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Removing the dynamics degrades both stages of the method, as shown in
+Table~\ref{tab:lpf}. The base model itself worsens from 0.5581 to 0.5683, and
+the best compensated result worsens from 0.4436 to 0.4665, a relative increase
+in error of 4.9 percent. The degradation is consistent rather than selective:
+all seven architectures perform worse with the static base model, and the number
+of model and recording combinations improving on the base model falls from 175
+to 164 out of 224.
+
+Two observations follow. First, the compensator does not recover what the static
+base model loses, even though it has access to a 100-sample history and could in
+principle represent the missing dynamics itself. Placing the dynamics in the
+physics-based component is therefore more effective than leaving them to be
+learned. Second, the ranking of architectures is largely preserved between the
+two conditions, which suggests that the choice of architecture and the choice of
+base model structure act independently.
+
+%------------------------------------------------------------------------------
+\subsection{Transfer Boundary}
+\label{sec:extrapolation}
+
+Section~\ref{sec:protocol} explained that one session is reserved for training
+because its gain lies well below that of all others. Treating it as a held-out
+test session instead is informative, because it shows what happens when the
+method is asked to extrapolate rather than interpolate. We therefore repeated
+the cross-day experiment with that session held out, keeping all other settings
+identical.
+
+The outcome reverses the main result. The calibrated base model achieves an RMSE
+of 0.0663 on this session, and every one of the seven architectures performs
+worse, ranging from 0.0772 for the Transformer to 0.0838 for the Synergy-SSM.
+The best model is thus 16.4 percent worse than applying no compensation at all,
+and only 14 of 70 model and recording combinations improve on the base model,
+compared with 78 percent in Table~\ref{tab:crossday}.
+
+The distinguishing feature of this session is that its gain of 0.44 lies a factor
+of 1.9 below the lowest gain among the remaining sessions, so no training session
+brackets it from below. The compensator has learned a correction appropriate to
+the range of conditions it observed and applies it outside that range, where it
+is systematically wrong. This delimits the applicability of the method: it
+improves accuracy when the deployment session falls inside the range of
+conditions spanned by training, and degrades accuracy when it does not. Because
+the gain can be estimated from the calibration segment before any prediction is
+made, this condition is checkable at deployment time, and falling back to the
+uncompensated base model is a safe response when it is not met.
+
+%------------------------------------------------------------------------------
+\subsection{Comparison Between Architectures}
+\label{sec:architecture}
+
+The seven architectures span convolutional, recurrent, attention-based,
+state-space and physics-constrained designs, and differ by a factor of five in
+parameter count, from 30{,}770 to 155{,}297. Despite this, their cross-day
+results occupy a narrow band: mean RMSE ranges from 0.4436 to 0.4644, a relative
+spread of 4.7 percent, against a 20.5 percent improvement over the base model.
+The difference between the best and worst architecture is therefore about a
+quarter of the difference between using compensation and not using it.
+
+We tested this directly. A Friedman test across the 32 held-out recordings
+rejects the hypothesis that the seven architectures have identical error
+distributions ($\chi^2 = 23.88$, $p = 5 \times 10^{-4}$), so the models are not
+strictly interchangeable. However, when all 21 pairwise comparisons are made with
+Wilcoxon signed-rank tests and corrected for multiple comparisons using the Holm
+procedure, no pair differs significantly at the 5 percent level. The smallest
+adjusted $p$ value is 0.221, for LSTM against the selective state-space model.
+
+The appropriate conclusion is therefore narrower than architectural equivalence.
+There is detectable heterogeneity among the seven, but the data do not identify
+which architecture is preferable: no individual comparison survives correction,
+and the spread is small relative to the effect of compensation itself. For this
+task and dataset, the choice of sequence architecture is not the factor that
+determines accuracy. Parameter count in particular is uninformative, since the
+largest model ranks second and the smallest ranks sixth.
+
+This has a practical consequence. Where two architectures cannot be separated on
+accuracy, secondary criteria become decisive. The selective state-space model
+attains comparable error with the fewest parameters but the longest training
+time, owing to its sequential scan. The LSTM is the only strictly causal model in
+the comparison and is therefore the natural candidate for a streaming
+implementation. The Transformer achieves the lowest mean error and trains
+quickly, but it processes the whole window bidirectionally and is less suited to
+real-time use.

@@ -1,0 +1,138 @@
+%==============================================================================
+%  sEMG-driven force estimation: learned compensation of an EDM base model
+%
+%  Compile:  pdflatex main && bibtex main && pdflatex main && pdflatex main
+%
+%  Class: IEEEtran (IEEE TNSRE / TBME style). To switch to a generic article,
+%  replace the \documentclass line with:
+%      \documentclass[11pt]{article}
+%      \usepackage[margin=1in]{geometry}
+%  and delete \IEEEpeerreviewmaketitle below.
+%
+%  Figures: copy the PNGs you want from
+%      mycode/Estimation_2026_10_13/paper_runs/<stamp>/E*/...
+%  into paper/figures/ and reference them by bare filename.
+%==============================================================================
+\documentclass[journal]{IEEEtran}
+
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{url}
+\usepackage{cite}
+\usepackage{siunitx}
+
+\graphicspath{{figures/}}
+
+\begin{document}
+
+\title{Learned Compensation of Electromechanical Delay Model Error for
+Cross-Day sEMG-Driven Force Estimation}
+
+\author{Nuwan~Madhusanka,~\IEEEmembership{}
+        and~Co-authors%
+\thanks{Manuscript received ...; revised ....}%
+\thanks{The authors are with La Trobe University, Melbourne, Australia
+(e-mail: ...).}}
+
+\maketitle
+
+%==============================================================================
+\begin{abstract}
+% 150-250 words. State, in order:
+%   (i)   problem: EDM models leave systematic residuals in sEMG-force estimation
+%   (ii)  method: per-session gain calibration + learned residual compensation
+%   (iii) evaluation: leave-one-day-out across 4 sessions, 7 architectures
+%   (iv)  headline numbers: 20.5% cross-day RMSE reduction (0.5581 -> 0.4436)
+%   (v)   the negative result: architectures differ by only 4.7%
+%   (vi)  the boundary: transfer fails outside the training gain range
+\end{abstract}
+
+\begin{IEEEkeywords}
+Surface electromyography, force estimation, electromechanical delay,
+cross-session generalisation, deep learning, state-space models,
+physics-informed neural networks.
+\end{IEEEkeywords}
+
+\IEEEpeerreviewmaketitle
+
+%==============================================================================
+\section{Introduction}
+\label{sec:intro}
+% Motivation: sEMG-driven force estimation for prosthetics / rehabilitation.
+% The EDM (electromechanical delay) base model and its residual error.
+% Why cross-day matters: in deployment the model is trained one day and used
+% on another.
+
+% State contributions explicitly as a list the reader can check against results.
+The contributions of this work are:
+\begin{enumerate}
+  \item A per-session gain calibration procedure that makes cross-day
+        compensation viable, using a short reference contraction available at
+        deployment time.
+  \item A learned residual compensator that reduces cross-day force estimation
+        error by 20.5\% relative to a calibrated EDM baseline.
+  \item A controlled comparison of seven sequence architectures showing they
+        perform equivalently, indicating that architecture is not the limiting
+        factor for this task.
+  \item Characterisation of the transfer boundary: compensation degrades when
+        the test session's gain falls outside the range spanned by training
+        sessions.
+\end{enumerate}
+
+%==============================================================================
+\section{Related Work}
+\label{sec:related}
+\subsection{sEMG-driven force estimation}
+% Hill-type models, EDM models, regression approaches.
+
+\subsection{Deep sequence models for biosignals}
+% CNN/LSTM/Transformer for EMG; state-space models; physics-informed networks.
+
+\subsection{Cross-session generalisation in sEMG}
+% Electrode shift, impedance change, day-to-day variability, calibration
+% protocols, domain adaptation.
+
+%==============================================================================
+\input{sections/methodology}
+
+%==============================================================================
+\input{sections/results}
+%==============================================================================
+\section{Discussion}
+\label{sec:discussion}
+% - Calibration, not architecture, is what makes cross-day compensation work.
+% - Training volume dominates domain match (cross-day beats within-day).
+% - The unexplained residual sits well above the measurement noise floor
+%   (9-23% of residual RMSE) yet is poorly predicted from sEMG alone,
+%   suggesting missing inputs: joint angle and contraction velocity enter force
+%   production through force-length and force-velocity relations, and the base
+%   model has no such dependence.
+% - Practical implication: deployment protocols should include a brief
+%   reference contraction when electrodes are fitted.
+
+%==============================================================================
+\section{Limitations}
+\label{sec:limitations}
+% - Single sEMG channel; limits the synergy formulation (Section III-H5).
+% - Single subject.
+% - The ~13x monotonic gain drift across sessions is unexplained; whether the
+%   force transducer was recalibrated between sessions could not be verified.
+% - Selective SSM implemented without fused kernels (runtime only).
+% - Single random seed; seed variance not characterised.
+
+%==============================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+%==============================================================================
+\section*{Acknowledgment}
+% Computation performed on the National Computational Infrastructure (NCI)
+% Gadi supercomputer, project mi23.
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+
+\end{document}

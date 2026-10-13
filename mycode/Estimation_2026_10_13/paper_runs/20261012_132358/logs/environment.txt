@@ -1,0 +1,149 @@
+job            : 181021935.gadi-pbs
+node           : gadi-gpu-v100-0153.gadi.nci.org.au
+date           : Mon Oct 12 13:23:58 AEDT 2026
+code dir       : /scratch/mi23/nuwan/Japan/EDM_Error_Compensate/mycode
+venv           : /scratch/jq77/nk8155/tft_env
+python         : /scratch/jq77/nk8155/tft_env/bin/python
+python version : Python 3.11.13
+settings       : stride=20 epochs=100 calib=10 day_folds=3
+
+--- git ---
+1f5c15579677bbf634fafbaf3f60f5fa09bf8d46
+ D Estimation/test/Data1.png
+ D Estimation/test/Data10.png
+ D Estimation/test/Data2.png
+ D Estimation/test/Data3.png
+ D Estimation/test/Data4.png
+ D Estimation/test/Data5.png
+ D Estimation/test/Data6.png
+ D Estimation/test/Data7.png
+ D Estimation/test/Data8.png
+ D Estimation/test/Data9.png
+ M run_paper_experiments.pbs
+?? ../Data/1st_Comp/
+?? ../Data/2nd_Comp/
+?? ../Data/3rd_Base/
+?? ../Data/4th_Valid/
+?? ../Data/5th_Comp/
+?? ../calibration/data/
+?? ../calibration/results/
+?? ../calibration/src/__pycache__/
+?? ../calibration/src/calibration/__pycache__/
+?? ../calibration/src/figures/__pycache__/
+?? Estimation/lodo/
+?? Estimation/lodo_26_aug/
+?? Estimation/paper_runs/
+?? Estimation/test_26_aug/
+?? Estimation/within_day/
+?? __pycache__/
+
+--- modules ---
+Currently Loaded Modulefiles:
+ 1) intel-mkl/2020.3.304   2) python3/3.9.2  
+
+--- gpu ---
+Mon Oct 12 13:23:58 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.178.04             Driver Version: 580.178.04     CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  Tesla V100-SXM2-32GB           On  |   00000000:B2:00.0 Off |                    0 |
+| N/A   37C    P0             42W /  300W |       0MiB /  32768MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+
+--- torch ---
+torch 2.1.2+cu121
+cuda True 12.1
+
+--- pip freeze ---
+absl-py==2.5.0
+astunparse==1.6.3
+certifi==2026.7.22
+charset-normalizer==3.4.9
+contourpy==1.3.3
+cuda-bindings==13.3.1
+cuda-pathfinder==1.6.1
+cuda-toolkit==13.0.3.0
+cycler==0.12.1
+filelock==3.32.3
+flatbuffers==25.12.19
+fonttools==4.63.0
+fsspec==2026.7.0
+gast==0.7.0
+google-pasta==0.2.0
+grpcio==1.83.0
+h5py==3.16.0
+idna==3.18
+Jinja2==3.1.6
+joblib==1.5.3
+keras==3.15.1
+kiwisolver==1.5.0
+libclang==18.1.1
+Markdown==3.10.3
+markdown-it-py==4.2.0
+MarkupSafe==3.0.3
+matplotlib==3.11.1
+mdurl==0.1.2
+ml_dtypes==0.5.4
+mpmath==1.3.0
+namex==0.1.0
+narwhals==2.24.0
+networkx==3.6.1
+numpy==1.26.4
+nvidia-cublas==13.1.1.3
+nvidia-cuda-cupti==13.0.85
+nvidia-cuda-nvrtc==13.0.88
+nvidia-cuda-runtime==13.0.96
+nvidia-cudnn-cu13==9.20.0.48
+nvidia-cufft==12.0.0.61
+nvidia-cufile==1.15.1.6
+nvidia-curand==10.4.0.35
+nvidia-cusolver==12.0.4.66
+nvidia-cusparse==12.6.3.3
+nvidia-cusparselt-cu13==0.8.1
+nvidia-nccl-cu13==2.29.7
+nvidia-nvjitlink==13.3.33
+nvidia-nvshmem-cu13==3.4.5
+nvidia-nvtx==13.0.85
+opt_einsum==3.4.0
+optree==0.19.1
+packaging==26.3
+pandas==3.0.5
+pillow==12.3.0
+protobuf==5.29.6
+Pygments==2.20.0
+pyparsing==3.3.2
+python-dateutil==2.9.0.post0
+PyYAML==6.0.1
+requests==2.34.2
+rich==15.0.0
+scikit-learn==1.9.0
+scipy==1.17.1
+six==1.17.0
+sympy==1.14.0
+tensorboard==2.19.0
+tensorboard-data-server==0.7.2
+tensorflow==2.19.0
+tensorflow-io-gcs-filesystem==0.37.1
+termcolor==3.3.0
+threadpoolctl==3.6.0
+torch==2.1.2+cu121
+torchaudio==2.1.2+cu121
+torchvision==0.16.2+cu121
+triton==2.1.0
+typing_extensions==4.16.0
+urllib3==2.7.0
+Werkzeug==3.1.8
+wrapt==2.3.0

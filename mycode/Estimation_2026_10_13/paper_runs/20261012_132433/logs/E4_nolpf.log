@@ -1,0 +1,924 @@
+DEVICE = cuda
+Sessions      : 1st_Comp, 2nd_Comp, 3rd_Base, 4th_Valid, 5th_Comp
+Training-only : 5th_Comp (never test/val)
+Folds to run  : 1st_Comp, 2nd_Comp, 3rd_Base, 4th_Valid
+Models       : conv_bilstm_transformer, conv_bilstm, lstm, transformer, synergy_ssm, mamba, pinn
+stride=20 batch=64 epochs=100 calib_seconds=10.0 lpf=False
+
+======================================================================
+FOLD  test=1st_Comp  val=2nd_Comp
+  train sessions : 3rd_Base, 4th_Valid, 5th_Comp (28 files)
+  val   session  : 2nd_Comp (9 files)
+  test  session  : 1st_Comp (5 files)
+======================================================================
+Fitting base model on training sessions...
+  TANH gain=1.5450 slope=0.5397  (cost=37601.9902)
+  test session gains: min=2.8810 max=6.5624 mean=4.4868
+Building windows (shared by all models)...
+  train: (25551, 100, 2)
+  val: (11085, 100, 2)
+
+  --- Conv-BiLSTM-Transformer (78,417 parameters) ---
+    Epoch   1/100 | train=0.050156 val=0.069779 lr=2.39e-04 *
+    Epoch   2/100 | train=0.033081 val=0.076383 lr=3.00e-04
+    Epoch   3/100 | train=0.030767 val=0.078406 lr=3.00e-04
+    Epoch   4/100 | train=0.030053 val=0.073938 lr=3.00e-04
+    Epoch   5/100 | train=0.029129 val=0.073286 lr=3.00e-04
+    Epoch   6/100 | train=0.029099 val=0.075313 lr=3.00e-04
+    Epoch   7/100 | train=0.028524 val=0.069990 lr=3.00e-04
+    Epoch   8/100 | train=0.028125 val=0.071361 lr=3.00e-04
+    Epoch   9/100 | train=0.028048 val=0.072610 lr=3.00e-04
+    Epoch  10/100 | train=0.028052 val=0.075044 lr=3.00e-04
+    Epoch  11/100 | train=0.027456 val=0.075741 lr=3.00e-04
+    Epoch  12/100 | train=0.026879 val=0.074983 lr=3.00e-04
+    Epoch  13/100 | train=0.026579 val=0.075377 lr=1.50e-04
+    Epoch  14/100 | train=0.025125 val=0.073487 lr=1.50e-04
+    Epoch  15/100 | train=0.024570 val=0.074747 lr=1.50e-04
+    Epoch  16/100 | train=0.023591 val=0.079571 lr=1.50e-04
+    Early stopping at epoch 16 (best = 1)
+    -> val RMSE=0.9081 (base 1.1104) | test RMSE=0.4934 (base 0.5320) R2=0.8210 | improved 4/5
+
+  --- Conv-BiLSTM (155,297 parameters) ---
+    Epoch   1/100 | train=0.044854 val=0.072555 lr=2.39e-04 *
+    Epoch   2/100 | train=0.032949 val=0.073212 lr=3.00e-04
+    Epoch   3/100 | train=0.031435 val=0.069777 lr=3.00e-04 *
+    Epoch   4/100 | train=0.030531 val=0.075991 lr=3.00e-04
+    Epoch   5/100 | train=0.029546 val=0.070280 lr=3.00e-04
+    Epoch   6/100 | train=0.029175 val=0.082795 lr=3.00e-04
+    Epoch   7/100 | train=0.029437 val=0.074181 lr=3.00e-04
+    Epoch   8/100 | train=0.028150 val=0.077652 lr=3.00e-04
+    Epoch   9/100 | train=0.027577 val=0.078949 lr=1.50e-04
+    Epoch  10/100 | train=0.026343 val=0.072547 lr=1.50e-04
+    Epoch  11/100 | train=0.026149 val=0.072997 lr=1.50e-04
+    Epoch  12/100 | train=0.025666 val=0.072741 lr=1.50e-04
+    Epoch  13/100 | train=0.025487 val=0.073561 lr=1.50e-04
+    Epoch  14/100 | train=0.025229 val=0.070659 lr=1.50e-04
+    Epoch  15/100 | train=0.024833 val=0.069577 lr=1.50e-04 *
+    Epoch  16/100 | train=0.024719 val=0.073076 lr=1.50e-04
+    Epoch  17/100 | train=0.024715 val=0.072830 lr=1.50e-04
+    Epoch  18/100 | train=0.024261 val=0.075080 lr=1.50e-04
+    Epoch  19/100 | train=0.023959 val=0.082455 lr=1.50e-04
+    Epoch  20/100 | train=0.024128 val=0.073012 lr=1.50e-04
+    Epoch  21/100 | train=0.023417 val=0.077638 lr=7.50e-05
+    Epoch  22/100 | train=0.021668 val=0.083298 lr=7.50e-05
+    Epoch  23/100 | train=0.021328 val=0.080736 lr=7.50e-05
+    Epoch  24/100 | train=0.020905 val=0.084609 lr=7.50e-05
+    Epoch  25/100 | train=0.020109 val=0.085499 lr=7.50e-05
+    Epoch  26/100 | train=0.020585 val=0.084567 lr=7.50e-05
+    Epoch  27/100 | train=0.019723 val=0.080786 lr=3.75e-05
+    Epoch  28/100 | train=0.018650 val=0.083431 lr=3.75e-05
+    Epoch  29/100 | train=0.018529 val=0.081428 lr=3.75e-05
+    Epoch  30/100 | train=0.018559 val=0.088258 lr=3.75e-05
+    Early stopping at epoch 30 (best = 15)
+    -> val RMSE=0.9448 (base 1.1104) | test RMSE=0.4832 (base 0.5320) R2=0.8299 | improved 4/5
+
+  --- LSTM (114,657 parameters) ---
+    Epoch   1/100 | train=0.043842 val=0.083452 lr=2.39e-04 *
+    Epoch   2/100 | train=0.040084 val=0.073250 lr=3.00e-04 *
+    Epoch   3/100 | train=0.038058 val=0.080376 lr=3.00e-04
+    Epoch   4/100 | train=0.037822 val=0.078003 lr=3.00e-04
+    Epoch   5/100 | train=0.037888 val=0.085130 lr=3.00e-04
+    Epoch   6/100 | train=0.037195 val=0.076624 lr=3.00e-04
+    Epoch   7/100 | train=0.038088 val=0.081784 lr=3.00e-04
+    Epoch   8/100 | train=0.035453 val=0.077686 lr=1.50e-04
+    Epoch   9/100 | train=0.036238 val=0.080218 lr=1.50e-04
+    Epoch  10/100 | train=0.035744 val=0.080472 lr=1.50e-04
+    Epoch  11/100 | train=0.035372 val=0.081423 lr=1.50e-04
+    Epoch  12/100 | train=0.034708 val=0.082971 lr=1.50e-04
+    Epoch  13/100 | train=0.034292 val=0.082749 lr=1.50e-04
+    Epoch  14/100 | train=0.033990 val=0.079781 lr=7.50e-05
+    Epoch  15/100 | train=0.033650 val=0.082521 lr=7.50e-05
+    Epoch  16/100 | train=0.033434 val=0.079759 lr=7.50e-05
+    Epoch  17/100 | train=0.033294 val=0.081730 lr=7.50e-05
+    Early stopping at epoch 17 (best = 2)
+    -> val RMSE=0.9363 (base 1.1104) | test RMSE=0.4855 (base 0.5320) R2=0.8270 | improved 4/5
+
+  --- Transformer (101,793 parameters) ---
+    Epoch   1/100 | train=0.044624 val=0.085055 lr=2.39e-04 *
+    Epoch   2/100 | train=0.036712 val=0.075539 lr=3.00e-04 *
+    Epoch   3/100 | train=0.032992 val=0.079225 lr=3.00e-04
+    Epoch   4/100 | train=0.031376 val=0.070976 lr=3.00e-04 *
+    Epoch   5/100 | train=0.029955 val=0.076662 lr=3.00e-04
+    Epoch   6/100 | train=0.029061 val=0.074939 lr=3.00e-04
+    Epoch   7/100 | train=0.028718 val=0.081216 lr=3.00e-04
+    Epoch   8/100 | train=0.027842 val=0.074598 lr=3.00e-04
+    Epoch   9/100 | train=0.027299 val=0.076640 lr=3.00e-04
+    Epoch  10/100 | train=0.026784 val=0.072944 lr=1.50e-04
+    Epoch  11/100 | train=0.026072 val=0.074185 lr=1.50e-04
+    Epoch  12/100 | train=0.025708 val=0.072763 lr=1.50e-04
+    Epoch  13/100 | train=0.025523 val=0.076020 lr=1.50e-04
+    Epoch  14/100 | train=0.025476 val=0.072403 lr=1.50e-04
+    Epoch  15/100 | train=0.025398 val=0.074241 lr=1.50e-04
+    Epoch  16/100 | train=0.025362 val=0.076190 lr=7.50e-05
+    Epoch  17/100 | train=0.024939 val=0.069204 lr=7.50e-05 *
+    Epoch  18/100 | train=0.024765 val=0.070806 lr=7.50e-05
+    Epoch  19/100 | train=0.024719 val=0.069890 lr=7.50e-05
+    Epoch  20/100 | train=0.024687 val=0.071236 lr=7.50e-05
+    Epoch  21/100 | train=0.024691 val=0.071875 lr=7.50e-05
+    Epoch  22/100 | train=0.024628 val=0.070448 lr=7.50e-05
+    Epoch  23/100 | train=0.024501 val=0.070476 lr=3.75e-05
+    Epoch  24/100 | train=0.024379 val=0.069934 lr=3.75e-05
+    Epoch  25/100 | train=0.024196 val=0.070676 lr=3.75e-05
+    Epoch  26/100 | train=0.024225 val=0.069170 lr=3.75e-05 *
+    Epoch  27/100 | train=0.024199 val=0.070270 lr=3.75e-05
+    Epoch  28/100 | train=0.024124 val=0.071029 lr=3.75e-05
+    Epoch  29/100 | train=0.024144 val=0.071018 lr=3.75e-05
+    Epoch  30/100 | train=0.024138 val=0.071867 lr=3.75e-05
+    Epoch  31/100 | train=0.024101 val=0.069966 lr=3.75e-05
+    Epoch  32/100 | train=0.023992 val=0.069364 lr=1.87e-05
+    Epoch  33/100 | train=0.023854 val=0.070905 lr=1.87e-05
+    Epoch  34/100 | train=0.023839 val=0.070480 lr=1.87e-05
+    Epoch  35/100 | train=0.023895 val=0.070623 lr=1.87e-05
+    Epoch  36/100 | train=0.023837 val=0.070335 lr=1.87e-05
+    Epoch  37/100 | train=0.023777 val=0.070267 lr=1.87e-05
+    Epoch  38/100 | train=0.023922 val=0.070437 lr=9.37e-06
+    Epoch  39/100 | train=0.023665 val=0.069673 lr=9.37e-06
+    Epoch  40/100 | train=0.023665 val=0.070445 lr=9.37e-06
+    Epoch  41/100 | train=0.023705 val=0.070696 lr=9.37e-06
+    Early stopping at epoch 41 (best = 26)
+    -> val RMSE=0.9136 (base 1.1104) | test RMSE=0.4702 (base 0.5320) R2=0.8389 | improved 5/5
+
+  --- Synergy-SSM (70,481 parameters) ---
+    Epoch   1/100 | train=0.042593 val=0.088270 lr=2.39e-04 *
+    Epoch   2/100 | train=0.040357 val=0.075962 lr=3.00e-04 *
+    Epoch   3/100 | train=0.038949 val=0.078973 lr=3.00e-04
+    Epoch   4/100 | train=0.038268 val=0.080890 lr=3.00e-04
+    Epoch   5/100 | train=0.037844 val=0.077348 lr=3.00e-04
+    Epoch   6/100 | train=0.036970 val=0.078086 lr=3.00e-04
+    Epoch   7/100 | train=0.036094 val=0.082190 lr=3.00e-04
+    Epoch   8/100 | train=0.035067 val=0.084347 lr=1.50e-04
+    Epoch   9/100 | train=0.033539 val=0.085349 lr=1.50e-04
+    Epoch  10/100 | train=0.033301 val=0.081748 lr=1.50e-04
+    Epoch  11/100 | train=0.032878 val=0.082323 lr=1.50e-04
+    Epoch  12/100 | train=0.032593 val=0.080681 lr=1.50e-04
+    Epoch  13/100 | train=0.032196 val=0.084048 lr=1.50e-04
+    Epoch  14/100 | train=0.032435 val=0.079770 lr=7.50e-05
+    Epoch  15/100 | train=0.031642 val=0.081951 lr=7.50e-05
+    Epoch  16/100 | train=0.031610 val=0.084329 lr=7.50e-05
+    Epoch  17/100 | train=0.031576 val=0.082808 lr=7.50e-05
+    Early stopping at epoch 17 (best = 2)
+    -> val RMSE=0.9666 (base 1.1104) | test RMSE=0.4919 (base 0.5320) R2=0.8208 | improved 4/5
+
+  --- Mamba (SSM) (30,770 parameters) ---
+    Epoch   1/100 | train=0.069030 val=0.074568 lr=2.39e-04 *
+    Epoch   2/100 | train=0.039472 val=0.074599 lr=3.00e-04
+    Epoch   3/100 | train=0.037592 val=0.075281 lr=3.00e-04
+    Epoch   4/100 | train=0.036581 val=0.078252 lr=3.00e-04
+    Epoch   5/100 | train=0.036080 val=0.080786 lr=3.00e-04
+    Epoch   6/100 | train=0.035294 val=0.082835 lr=3.00e-04
+    Epoch   7/100 | train=0.034264 val=0.083553 lr=3.00e-04
+    Epoch   8/100 | train=0.033235 val=0.082076 lr=1.50e-04
+    Epoch   9/100 | train=0.031887 val=0.082527 lr=1.50e-04
+    Epoch  10/100 | train=0.031588 val=0.079978 lr=1.50e-04
+    Epoch  11/100 | train=0.031200 val=0.079100 lr=1.50e-04
+    Epoch  12/100 | train=0.031240 val=0.079829 lr=1.50e-04
+    Epoch  13/100 | train=0.030921 val=0.081610 lr=1.50e-04
+    Epoch  14/100 | train=0.030837 val=0.081108 lr=7.50e-05
+    Epoch  15/100 | train=0.030619 val=0.080263 lr=7.50e-05
+    Epoch  16/100 | train=0.030598 val=0.081841 lr=7.50e-05
+    Early stopping at epoch 16 (best = 1)
+    -> val RMSE=0.9414 (base 1.1104) | test RMSE=0.4997 (base 0.5320) R2=0.8168 | improved 4/5
+
+  --- PINN (40,132 parameters) ---
+    Epoch   1/100 | train=0.043415 val=0.080922 lr=2.39e-04 *
+    Epoch   2/100 | train=0.038511 val=0.080183 lr=3.00e-04 *
+    Epoch   3/100 | train=0.037802 val=0.079781 lr=3.00e-04 *
+    Epoch   4/100 | train=0.037223 val=0.082820 lr=3.00e-04
+    Epoch   5/100 | train=0.036581 val=0.081382 lr=3.00e-04
+    Epoch   6/100 | train=0.035544 val=0.085676 lr=3.00e-04
+    Epoch   7/100 | train=0.036238 val=0.080992 lr=3.00e-04
+    Epoch   8/100 | train=0.035704 val=0.083551 lr=3.00e-04
+    Epoch   9/100 | train=0.034471 val=0.082044 lr=1.50e-04
+    Epoch  10/100 | train=0.033648 val=0.083324 lr=1.50e-04
+    Epoch  11/100 | train=0.032527 val=0.081495 lr=1.50e-04
+    Epoch  12/100 | train=0.031123 val=0.086406 lr=1.50e-04
+    Epoch  13/100 | train=0.030816 val=0.085070 lr=1.50e-04
+    Epoch  14/100 | train=0.030101 val=0.081021 lr=1.50e-04
+    Epoch  15/100 | train=0.030046 val=0.082549 lr=7.50e-05
+    Epoch  16/100 | train=0.029380 val=0.081129 lr=7.50e-05
+    Epoch  17/100 | train=0.029240 val=0.080874 lr=7.50e-05
+    Epoch  18/100 | train=0.029143 val=0.085781 lr=7.50e-05
+    Early stopping at epoch 18 (best = 3)
+    -> val RMSE=0.9471 (base 1.1104) | test RMSE=0.4921 (base 0.5320) R2=0.8226 | improved 4/5
+
+  Writing comparison plots...
+
+======================================================================
+FOLD  test=2nd_Comp  val=3rd_Base
+  train sessions : 1st_Comp, 4th_Valid, 5th_Comp (28 files)
+  val   session  : 3rd_Base (5 files)
+  test  session  : 2nd_Comp (9 files)
+======================================================================
+Fitting base model on training sessions...
+  TANH gain=2.5684 slope=0.4889  (cost=165515.3206)
+  test session gains: min=2.0891 max=4.4432 mean=2.9453
+Building windows (shared by all models)...
+  train: (26225, 100, 2)
+  val: (6194, 100, 2)
+
+  --- Conv-BiLSTM-Transformer (78,417 parameters) ---
+    Epoch   1/100 | train=0.037967 val=0.057261 lr=2.45e-04 *
+    Epoch   2/100 | train=0.026174 val=0.048598 lr=3.00e-04 *
+    Epoch   3/100 | train=0.024276 val=0.049135 lr=3.00e-04
+    Epoch   4/100 | train=0.023808 val=0.045067 lr=3.00e-04 *
+    Epoch   5/100 | train=0.023421 val=0.049218 lr=3.00e-04
+    Epoch   6/100 | train=0.022960 val=0.049453 lr=3.00e-04
+    Epoch   7/100 | train=0.022608 val=0.045920 lr=3.00e-04
+    Epoch   8/100 | train=0.022246 val=0.054285 lr=3.00e-04
+    Epoch   9/100 | train=0.021754 val=0.062591 lr=3.00e-04
+    Epoch  10/100 | train=0.021092 val=0.057818 lr=1.50e-04
+    Epoch  11/100 | train=0.020248 val=0.059538 lr=1.50e-04
+    Epoch  12/100 | train=0.020067 val=0.059999 lr=1.50e-04
+    Epoch  13/100 | train=0.019660 val=0.071492 lr=1.50e-04
+    Epoch  14/100 | train=0.019359 val=0.067180 lr=1.50e-04
+    Epoch  15/100 | train=0.019049 val=0.057567 lr=1.50e-04
+    Epoch  16/100 | train=0.018666 val=0.065056 lr=7.50e-05
+    Epoch  17/100 | train=0.017880 val=0.061174 lr=7.50e-05
+    Epoch  18/100 | train=0.017378 val=0.056138 lr=7.50e-05
+    Epoch  19/100 | train=0.017446 val=0.057625 lr=7.50e-05
+    Early stopping at epoch 19 (best = 4)
+    -> val RMSE=0.1527 (base 0.2063) | test RMSE=0.9218 (base 1.1077) R2=-1.4269 | improved 7/9
+
+  --- Conv-BiLSTM (155,297 parameters) ---
+    Epoch   1/100 | train=0.036212 val=0.055326 lr=2.45e-04 *
+    Epoch   2/100 | train=0.026289 val=0.048599 lr=3.00e-04 *
+    Epoch   3/100 | train=0.024758 val=0.050351 lr=3.00e-04
+    Epoch   4/100 | train=0.023888 val=0.049491 lr=3.00e-04
+    Epoch   5/100 | train=0.023793 val=0.046389 lr=3.00e-04 *
+    Epoch   6/100 | train=0.023479 val=0.048691 lr=3.00e-04
+    Epoch   7/100 | train=0.023245 val=0.047821 lr=3.00e-04
+    Epoch   8/100 | train=0.022872 val=0.049269 lr=3.00e-04
+    Epoch   9/100 | train=0.022174 val=0.065516 lr=3.00e-04
+    Epoch  10/100 | train=0.021434 val=0.058502 lr=3.00e-04
+    Epoch  11/100 | train=0.021100 val=0.057018 lr=1.50e-04
+    Epoch  12/100 | train=0.020369 val=0.069936 lr=1.50e-04
+    Epoch  13/100 | train=0.020190 val=0.058839 lr=1.50e-04
+    Epoch  14/100 | train=0.019844 val=0.066840 lr=1.50e-04
+    Epoch  15/100 | train=0.019743 val=0.065629 lr=1.50e-04
+    Epoch  16/100 | train=0.019429 val=0.060486 lr=1.50e-04
+    Epoch  17/100 | train=0.018728 val=0.060904 lr=7.50e-05
+    Epoch  18/100 | train=0.017466 val=0.061346 lr=7.50e-05
+    Epoch  19/100 | train=0.016953 val=0.065212 lr=7.50e-05
+    Epoch  20/100 | train=0.016860 val=0.060451 lr=7.50e-05
+    Early stopping at epoch 20 (best = 5)
+    -> val RMSE=0.1599 (base 0.2063) | test RMSE=0.9248 (base 1.1077) R2=-1.1607 | improved 8/9
+
+  --- LSTM (114,657 parameters) ---
+    Epoch   1/100 | train=0.032411 val=0.063643 lr=2.45e-04 *
+    Epoch   2/100 | train=0.029621 val=0.060250 lr=3.00e-04 *
+    Epoch   3/100 | train=0.029102 val=0.059296 lr=3.00e-04 *
+    Epoch   4/100 | train=0.028902 val=0.061109 lr=3.00e-04
+    Epoch   5/100 | train=0.028964 val=0.059850 lr=3.00e-04
+    Epoch   6/100 | train=0.028695 val=0.056907 lr=3.00e-04 *
+    Epoch   7/100 | train=0.028749 val=0.058480 lr=3.00e-04
+    Epoch   8/100 | train=0.028612 val=0.060288 lr=3.00e-04
+    Epoch   9/100 | train=0.028596 val=0.059300 lr=3.00e-04
+    Epoch  10/100 | train=0.028286 val=0.059254 lr=3.00e-04
+    Epoch  11/100 | train=0.027828 val=0.058732 lr=3.00e-04
+    Epoch  12/100 | train=0.027570 val=0.061492 lr=1.50e-04
+    Epoch  13/100 | train=0.028341 val=0.060688 lr=1.50e-04
+    Epoch  14/100 | train=0.028243 val=0.059239 lr=1.50e-04
+    Epoch  15/100 | train=0.027719 val=0.075776 lr=1.50e-04
+    Epoch  16/100 | train=0.026199 val=0.069423 lr=1.50e-04
+    Epoch  17/100 | train=0.026133 val=0.073404 lr=1.50e-04
+    Epoch  18/100 | train=0.025608 val=0.067311 lr=7.50e-05
+    Epoch  19/100 | train=0.025243 val=0.072964 lr=7.50e-05
+    Epoch  20/100 | train=0.025058 val=0.075083 lr=7.50e-05
+    Epoch  21/100 | train=0.025006 val=0.076170 lr=7.50e-05
+    Early stopping at epoch 21 (best = 6)
+    -> val RMSE=0.1743 (base 0.2063) | test RMSE=0.9380 (base 1.1077) R2=-0.6133 | improved 7/9
+
+  --- Transformer (101,793 parameters) ---
+    Epoch   1/100 | train=0.033021 val=0.064914 lr=2.45e-04 *
+    Epoch   2/100 | train=0.027837 val=0.054527 lr=3.00e-04 *
+    Epoch   3/100 | train=0.025903 val=0.050894 lr=3.00e-04 *
+    Epoch   4/100 | train=0.025282 val=0.048166 lr=3.00e-04 *
+    Epoch   5/100 | train=0.024306 val=0.046758 lr=3.00e-04 *
+    Epoch   6/100 | train=0.023888 val=0.047050 lr=3.00e-04
+    Epoch   7/100 | train=0.022848 val=0.060240 lr=3.00e-04
+    Epoch   8/100 | train=0.021788 val=0.053557 lr=3.00e-04
+    Epoch   9/100 | train=0.021478 val=0.060561 lr=3.00e-04
+    Epoch  10/100 | train=0.021083 val=0.055575 lr=3.00e-04
+    Epoch  11/100 | train=0.021011 val=0.066756 lr=1.50e-04
+    Epoch  12/100 | train=0.020401 val=0.055833 lr=1.50e-04
+    Epoch  13/100 | train=0.020126 val=0.056554 lr=1.50e-04
+    Epoch  14/100 | train=0.019901 val=0.061068 lr=1.50e-04
+    Epoch  15/100 | train=0.019857 val=0.062388 lr=1.50e-04
+    Epoch  16/100 | train=0.019630 val=0.065025 lr=1.50e-04
+    Epoch  17/100 | train=0.019504 val=0.068235 lr=7.50e-05
+    Epoch  18/100 | train=0.018784 val=0.060048 lr=7.50e-05
+    Epoch  19/100 | train=0.018190 val=0.060939 lr=7.50e-05
+    Epoch  20/100 | train=0.018260 val=0.065557 lr=7.50e-05
+    Early stopping at epoch 20 (best = 5)
+    -> val RMSE=0.1617 (base 0.2063) | test RMSE=0.9099 (base 1.1077) R2=-1.0109 | improved 9/9
+
+  --- Synergy-SSM (70,481 parameters) ---
+    Epoch   1/100 | train=0.031617 val=0.063694 lr=2.45e-04 *
+    Epoch   2/100 | train=0.029144 val=0.058533 lr=3.00e-04 *
+    Epoch   3/100 | train=0.029038 val=0.058664 lr=3.00e-04
+    Epoch   4/100 | train=0.028787 val=0.059282 lr=3.00e-04
+    Epoch   5/100 | train=0.028628 val=0.057197 lr=3.00e-04 *
+    Epoch   6/100 | train=0.028467 val=0.057224 lr=3.00e-04
+    Epoch   7/100 | train=0.028596 val=0.058998 lr=3.00e-04
+    Epoch   8/100 | train=0.028480 val=0.056990 lr=3.00e-04 *
+    Epoch   9/100 | train=0.028292 val=0.056795 lr=3.00e-04 *
+    Epoch  10/100 | train=0.028241 val=0.058188 lr=3.00e-04
+    Epoch  11/100 | train=0.028190 val=0.051655 lr=3.00e-04 *
+    Epoch  12/100 | train=0.027744 val=0.056743 lr=3.00e-04
+    Epoch  13/100 | train=0.028246 val=0.055866 lr=3.00e-04
+    Epoch  14/100 | train=0.028233 val=0.057518 lr=3.00e-04
+    Epoch  15/100 | train=0.028084 val=0.055437 lr=3.00e-04
+    Epoch  16/100 | train=0.028134 val=0.057723 lr=3.00e-04
+    Epoch  17/100 | train=0.028073 val=0.055099 lr=1.50e-04
+    Epoch  18/100 | train=0.027817 val=0.056483 lr=1.50e-04
+    Epoch  19/100 | train=0.027693 val=0.057244 lr=1.50e-04
+    Epoch  20/100 | train=0.027597 val=0.054446 lr=1.50e-04
+    Epoch  21/100 | train=0.027577 val=0.056797 lr=1.50e-04
+    Epoch  22/100 | train=0.027513 val=0.054817 lr=1.50e-04
+    Epoch  23/100 | train=0.027459 val=0.055192 lr=7.50e-05
+    Epoch  24/100 | train=0.027271 val=0.055381 lr=7.50e-05
+    Epoch  25/100 | train=0.027179 val=0.055685 lr=7.50e-05
+    Epoch  26/100 | train=0.027077 val=0.056833 lr=7.50e-05
+    Early stopping at epoch 26 (best = 11)
+    -> val RMSE=0.1719 (base 0.2063) | test RMSE=0.9371 (base 1.1077) R2=-1.0206 | improved 9/9
+
+  --- Mamba (SSM) (30,770 parameters) ---
+    Epoch   1/100 | train=0.055760 val=0.059084 lr=2.45e-04 *
+    Epoch   2/100 | train=0.029515 val=0.059786 lr=3.00e-04
+    Epoch   3/100 | train=0.029062 val=0.062001 lr=3.00e-04
+    Epoch   4/100 | train=0.028660 val=0.059282 lr=3.00e-04
+    Epoch   5/100 | train=0.028418 val=0.056317 lr=3.00e-04 *
+    Epoch   6/100 | train=0.028234 val=0.057193 lr=3.00e-04
+    Epoch   7/100 | train=0.028036 val=0.053956 lr=3.00e-04 *
+    Epoch   8/100 | train=0.027851 val=0.058428 lr=3.00e-04
+    Epoch   9/100 | train=0.027002 val=0.063588 lr=3.00e-04
+    Epoch  10/100 | train=0.026140 val=0.069041 lr=3.00e-04
+    Epoch  11/100 | train=0.025346 val=0.069726 lr=3.00e-04
+    Epoch  12/100 | train=0.025180 val=0.069762 lr=3.00e-04
+    Epoch  13/100 | train=0.025243 val=0.069687 lr=1.50e-04
+    Epoch  14/100 | train=0.024761 val=0.074835 lr=1.50e-04
+    Epoch  15/100 | train=0.024877 val=0.070397 lr=1.50e-04
+    Epoch  16/100 | train=0.024795 val=0.070336 lr=1.50e-04
+    Epoch  17/100 | train=0.024764 val=0.072734 lr=1.50e-04
+    Epoch  18/100 | train=0.024838 val=0.072908 lr=1.50e-04
+    Epoch  19/100 | train=0.024716 val=0.069725 lr=7.50e-05
+    Epoch  20/100 | train=0.024594 val=0.073311 lr=7.50e-05
+    Epoch  21/100 | train=0.024572 val=0.073112 lr=7.50e-05
+    Epoch  22/100 | train=0.024523 val=0.072153 lr=7.50e-05
+    Early stopping at epoch 22 (best = 7)
+    -> val RMSE=0.1722 (base 0.2063) | test RMSE=0.9350 (base 1.1077) R2=-1.1233 | improved 7/9
+
+  --- PINN (40,132 parameters) ---
+    Epoch   1/100 | train=0.031258 val=0.062795 lr=2.45e-04 *
+    Epoch   2/100 | train=0.029078 val=0.057199 lr=3.00e-04 *
+    Epoch   3/100 | train=0.028664 val=0.055818 lr=3.00e-04 *
+    Epoch   4/100 | train=0.028462 val=0.060456 lr=3.00e-04
+    Epoch   5/100 | train=0.028307 val=0.056990 lr=3.00e-04
+    Epoch   6/100 | train=0.028281 val=0.056559 lr=3.00e-04
+    Epoch   7/100 | train=0.028038 val=0.054379 lr=3.00e-04 *
+    Epoch   8/100 | train=0.027906 val=0.055259 lr=3.00e-04
+    Epoch   9/100 | train=0.026691 val=0.065038 lr=3.00e-04
+    Epoch  10/100 | train=0.027198 val=0.067506 lr=3.00e-04
+    Epoch  11/100 | train=0.025307 val=0.068197 lr=3.00e-04
+    Epoch  12/100 | train=0.024600 val=0.064466 lr=3.00e-04
+    Epoch  13/100 | train=0.023831 val=0.076470 lr=1.50e-04
+    Epoch  14/100 | train=0.023150 val=0.070587 lr=1.50e-04
+    Epoch  15/100 | train=0.022880 val=0.075842 lr=1.50e-04
+    Epoch  16/100 | train=0.022702 val=0.065201 lr=1.50e-04
+    Epoch  17/100 | train=0.022565 val=0.064085 lr=1.50e-04
+    Epoch  18/100 | train=0.022443 val=0.073948 lr=1.50e-04
+    Epoch  19/100 | train=0.022195 val=0.073889 lr=7.50e-05
+    Epoch  20/100 | train=0.021855 val=0.067290 lr=7.50e-05
+    Epoch  21/100 | train=0.021998 val=0.067164 lr=7.50e-05
+    Epoch  22/100 | train=0.021620 val=0.069949 lr=7.50e-05
+    Early stopping at epoch 22 (best = 7)
+    -> val RMSE=0.1723 (base 0.2063) | test RMSE=0.9511 (base 1.1077) R2=-0.6304 | improved 7/9
+
+  Writing comparison plots...
+
+======================================================================
+FOLD  test=3rd_Base  val=4th_Valid
+  train sessions : 1st_Comp, 2nd_Comp, 5th_Comp (24 files)
+  val   session  : 4th_Valid (13 files)
+  test  session  : 3rd_Base (5 files)
+======================================================================
+Fitting base model on training sessions...
+  TANH gain=5.1877 slope=0.5639  (cost=652637.8015)
+  test session gains: min=0.1991 max=0.3172 mean=0.2359
+Building windows (shared by all models)...
+  train: (32046, 100, 2)
+  val: (5275, 100, 2)
+
+  --- Conv-BiLSTM-Transformer (78,417 parameters) ---
+    Epoch   1/100 | train=0.047144 val=0.062986 lr=3.00e-04 *
+    Epoch   2/100 | train=0.035621 val=0.062955 lr=3.00e-04 *
+    Epoch   3/100 | train=0.033960 val=0.059325 lr=3.00e-04 *
+    Epoch   4/100 | train=0.033658 val=0.060958 lr=3.00e-04
+    Epoch   5/100 | train=0.033367 val=0.060101 lr=3.00e-04
+    Epoch   6/100 | train=0.033291 val=0.059902 lr=3.00e-04
+    Epoch   7/100 | train=0.032913 val=0.057503 lr=3.00e-04 *
+    Epoch   8/100 | train=0.032782 val=0.058912 lr=3.00e-04
+    Epoch   9/100 | train=0.032530 val=0.060643 lr=3.00e-04
+    Epoch  10/100 | train=0.032431 val=0.057962 lr=3.00e-04
+    Epoch  11/100 | train=0.032152 val=0.057175 lr=3.00e-04 *
+    Epoch  12/100 | train=0.031657 val=0.054658 lr=3.00e-04 *
+    Epoch  13/100 | train=0.031588 val=0.052125 lr=3.00e-04 *
+    Epoch  14/100 | train=0.031406 val=0.055225 lr=3.00e-04
+    Epoch  15/100 | train=0.031138 val=0.060004 lr=3.00e-04
+    Epoch  16/100 | train=0.030906 val=0.057231 lr=3.00e-04
+    Epoch  17/100 | train=0.030211 val=0.060040 lr=3.00e-04
+    Epoch  18/100 | train=0.029773 val=0.056393 lr=3.00e-04
+    Epoch  19/100 | train=0.029612 val=0.068265 lr=1.50e-04
+    Epoch  20/100 | train=0.028077 val=0.056603 lr=1.50e-04
+    Epoch  21/100 | train=0.027565 val=0.061758 lr=1.50e-04
+    Epoch  22/100 | train=0.026329 val=0.063506 lr=1.50e-04
+    Epoch  23/100 | train=0.026528 val=0.062310 lr=1.50e-04
+    Epoch  24/100 | train=0.027119 val=0.060877 lr=1.50e-04
+    Epoch  25/100 | train=0.026588 val=0.063793 lr=7.50e-05
+    Epoch  26/100 | train=0.024183 val=0.063303 lr=7.50e-05
+    Epoch  27/100 | train=0.024088 val=0.063723 lr=7.50e-05
+    Epoch  28/100 | train=0.023475 val=0.063164 lr=7.50e-05
+    Early stopping at epoch 28 (best = 13)
+    -> val RMSE=0.2575 (base 0.3478) | test RMSE=0.1520 (base 0.2065) R2=-1.1544 | improved 2/5
+
+  --- Conv-BiLSTM (155,297 parameters) ---
+    Epoch   1/100 | train=0.043508 val=0.071008 lr=3.00e-04 *
+    Epoch   2/100 | train=0.035403 val=0.059988 lr=3.00e-04 *
+    Epoch   3/100 | train=0.034524 val=0.056418 lr=3.00e-04 *
+    Epoch   4/100 | train=0.033774 val=0.058505 lr=3.00e-04
+    Epoch   5/100 | train=0.033593 val=0.062806 lr=3.00e-04
+    Epoch   6/100 | train=0.033209 val=0.060109 lr=3.00e-04
+    Epoch   7/100 | train=0.033201 val=0.056041 lr=3.00e-04 *
+    Epoch   8/100 | train=0.032848 val=0.059157 lr=3.00e-04
+    Epoch   9/100 | train=0.032851 val=0.059341 lr=3.00e-04
+    Epoch  10/100 | train=0.032763 val=0.056365 lr=3.00e-04
+    Epoch  11/100 | train=0.032381 val=0.059590 lr=3.00e-04
+    Epoch  12/100 | train=0.032355 val=0.058513 lr=3.00e-04
+    Epoch  13/100 | train=0.032124 val=0.058231 lr=1.50e-04
+    Epoch  14/100 | train=0.031419 val=0.055582 lr=1.50e-04 *
+    Epoch  15/100 | train=0.030934 val=0.058604 lr=1.50e-04
+    Epoch  16/100 | train=0.030585 val=0.058268 lr=1.50e-04
+    Epoch  17/100 | train=0.030136 val=0.061503 lr=1.50e-04
+    Epoch  18/100 | train=0.029146 val=0.060716 lr=1.50e-04
+    Epoch  19/100 | train=0.028183 val=0.062291 lr=1.50e-04
+    Epoch  20/100 | train=0.026777 val=0.061606 lr=7.50e-05
+    Epoch  21/100 | train=0.025085 val=0.061716 lr=7.50e-05
+    Epoch  22/100 | train=0.024545 val=0.062779 lr=7.50e-05
+    Epoch  23/100 | train=0.024444 val=0.059998 lr=7.50e-05
+    Epoch  24/100 | train=0.024341 val=0.063598 lr=7.50e-05
+    Epoch  25/100 | train=0.023822 val=0.058407 lr=7.50e-05
+    Epoch  26/100 | train=0.023631 val=0.061843 lr=3.75e-05
+    Epoch  27/100 | train=0.022983 val=0.060988 lr=3.75e-05
+    Epoch  28/100 | train=0.022674 val=0.063323 lr=3.75e-05
+    Epoch  29/100 | train=0.022607 val=0.061593 lr=3.75e-05
+    Early stopping at epoch 29 (best = 14)
+    -> val RMSE=0.2632 (base 0.3478) | test RMSE=0.1513 (base 0.2065) R2=-0.6162 | improved 2/5
+
+  --- LSTM (114,657 parameters) ---
+    Epoch   1/100 | train=0.041598 val=0.073102 lr=3.00e-04 *
+    Epoch   2/100 | train=0.038547 val=0.071884 lr=3.00e-04 *
+    Epoch   3/100 | train=0.038130 val=0.071465 lr=3.00e-04 *
+    Epoch   4/100 | train=0.037932 val=0.074613 lr=3.00e-04
+    Epoch   5/100 | train=0.037769 val=0.075549 lr=3.00e-04
+    Epoch   6/100 | train=0.037846 val=0.072354 lr=3.00e-04
+    Epoch   7/100 | train=0.037575 val=0.073689 lr=3.00e-04
+    Epoch   8/100 | train=0.037601 val=0.072547 lr=3.00e-04
+    Epoch   9/100 | train=0.037506 val=0.074695 lr=1.50e-04
+    Epoch  10/100 | train=0.037312 val=0.071594 lr=1.50e-04
+    Epoch  11/100 | train=0.037250 val=0.073232 lr=1.50e-04
+    Epoch  12/100 | train=0.037061 val=0.071718 lr=1.50e-04
+    Epoch  13/100 | train=0.036982 val=0.070882 lr=1.50e-04 *
+    Epoch  14/100 | train=0.036850 val=0.073807 lr=1.50e-04
+    Epoch  15/100 | train=0.037170 val=0.070710 lr=1.50e-04 *
+    Epoch  16/100 | train=0.036934 val=0.073143 lr=1.50e-04
+    Epoch  17/100 | train=0.036947 val=0.073730 lr=1.50e-04
+    Epoch  18/100 | train=0.037013 val=0.071729 lr=1.50e-04
+    Epoch  19/100 | train=0.036981 val=0.073079 lr=1.50e-04
+    Epoch  20/100 | train=0.036937 val=0.070574 lr=1.50e-04 *
+    Epoch  21/100 | train=0.036750 val=0.072201 lr=1.50e-04
+    Epoch  22/100 | train=0.036617 val=0.071316 lr=1.50e-04
+    Epoch  23/100 | train=0.036473 val=0.071207 lr=1.50e-04
+    Epoch  24/100 | train=0.036279 val=0.070926 lr=1.50e-04
+    Epoch  25/100 | train=0.036329 val=0.071044 lr=1.50e-04
+    Epoch  26/100 | train=0.036180 val=0.071976 lr=7.50e-05
+    Epoch  27/100 | train=0.036187 val=0.071454 lr=7.50e-05
+    Epoch  28/100 | train=0.036270 val=0.072117 lr=7.50e-05
+    Epoch  29/100 | train=0.036177 val=0.071365 lr=7.50e-05
+    Epoch  30/100 | train=0.036103 val=0.071570 lr=7.50e-05
+    Epoch  31/100 | train=0.036047 val=0.070548 lr=7.50e-05 *
+    Epoch  32/100 | train=0.035954 val=0.070492 lr=7.50e-05 *
+    Epoch  33/100 | train=0.035912 val=0.070323 lr=7.50e-05 *
+    Epoch  34/100 | train=0.035947 val=0.071060 lr=7.50e-05
+    Epoch  35/100 | train=0.035979 val=0.072173 lr=7.50e-05
+    Epoch  36/100 | train=0.036111 val=0.072442 lr=7.50e-05
+    Epoch  37/100 | train=0.035997 val=0.070649 lr=7.50e-05
+    Epoch  38/100 | train=0.035946 val=0.071739 lr=7.50e-05
+    Epoch  39/100 | train=0.035852 val=0.071046 lr=3.75e-05
+    Epoch  40/100 | train=0.035750 val=0.070448 lr=3.75e-05
+    Epoch  41/100 | train=0.035758 val=0.070849 lr=3.75e-05
+    Epoch  42/100 | train=0.035892 val=0.070788 lr=3.75e-05
+    Epoch  43/100 | train=0.035852 val=0.071149 lr=3.75e-05
+    Epoch  44/100 | train=0.035808 val=0.071784 lr=3.75e-05
+    Epoch  45/100 | train=0.035827 val=0.070937 lr=1.87e-05
+    Epoch  46/100 | train=0.035661 val=0.071044 lr=1.87e-05
+    Epoch  47/100 | train=0.035708 val=0.071115 lr=1.87e-05
+    Epoch  48/100 | train=0.035666 val=0.070710 lr=1.87e-05
+    Early stopping at epoch 48 (best = 33)
+    -> val RMSE=0.3028 (base 0.3478) | test RMSE=0.1629 (base 0.2065) R2=-1.1517 | improved 3/5
+
+  --- Transformer (101,793 parameters) ---
+    Epoch   1/100 | train=0.041796 val=0.070708 lr=3.00e-04 *
+    Epoch   2/100 | train=0.036835 val=0.065399 lr=3.00e-04 *
+    Epoch   3/100 | train=0.035070 val=0.063834 lr=3.00e-04 *
+    Epoch   4/100 | train=0.034452 val=0.060666 lr=3.00e-04 *
+    Epoch   5/100 | train=0.033985 val=0.061279 lr=3.00e-04
+    Epoch   6/100 | train=0.033819 val=0.058866 lr=3.00e-04 *
+    Epoch   7/100 | train=0.033503 val=0.058622 lr=3.00e-04 *
+    Epoch   8/100 | train=0.033253 val=0.058494 lr=3.00e-04 *
+    Epoch   9/100 | train=0.033026 val=0.056699 lr=3.00e-04 *
+    Epoch  10/100 | train=0.032922 val=0.057672 lr=3.00e-04
+    Epoch  11/100 | train=0.032650 val=0.061513 lr=3.00e-04
+    Epoch  12/100 | train=0.032490 val=0.054949 lr=3.00e-04 *
+    Epoch  13/100 | train=0.032249 val=0.057319 lr=3.00e-04
+    Epoch  14/100 | train=0.032204 val=0.053122 lr=3.00e-04 *
+    Epoch  15/100 | train=0.032016 val=0.057316 lr=3.00e-04
+    Epoch  16/100 | train=0.031835 val=0.059639 lr=3.00e-04
+    Epoch  17/100 | train=0.031699 val=0.059155 lr=3.00e-04
+    Epoch  18/100 | train=0.031546 val=0.058374 lr=3.00e-04
+    Epoch  19/100 | train=0.031551 val=0.057821 lr=3.00e-04
+    Epoch  20/100 | train=0.031545 val=0.053239 lr=1.50e-04
+    Epoch  21/100 | train=0.031172 val=0.058489 lr=1.50e-04
+    Epoch  22/100 | train=0.030887 val=0.056565 lr=1.50e-04
+    Epoch  23/100 | train=0.030902 val=0.056888 lr=1.50e-04
+    Epoch  24/100 | train=0.030923 val=0.063542 lr=1.50e-04
+    Epoch  25/100 | train=0.030804 val=0.055875 lr=1.50e-04
+    Epoch  26/100 | train=0.030847 val=0.061946 lr=7.50e-05
+    Epoch  27/100 | train=0.030445 val=0.057593 lr=7.50e-05
+    Epoch  28/100 | train=0.030453 val=0.057595 lr=7.50e-05
+    Epoch  29/100 | train=0.030371 val=0.061349 lr=7.50e-05
+    Early stopping at epoch 29 (best = 14)
+    -> val RMSE=0.2612 (base 0.3478) | test RMSE=0.1580 (base 0.2065) R2=-1.2079 | improved 2/5
+
+  --- Synergy-SSM (70,481 parameters) ---
+    Epoch   1/100 | train=0.040673 val=0.073115 lr=3.00e-04 *
+    Epoch   2/100 | train=0.038007 val=0.069488 lr=3.00e-04 *
+    Epoch   3/100 | train=0.037800 val=0.069255 lr=3.00e-04 *
+    Epoch   4/100 | train=0.037709 val=0.072429 lr=3.00e-04
+    Epoch   5/100 | train=0.037338 val=0.070125 lr=3.00e-04
+    Epoch   6/100 | train=0.037289 val=0.077710 lr=3.00e-04
+    Epoch   7/100 | train=0.037191 val=0.073267 lr=3.00e-04
+    Epoch   8/100 | train=0.037103 val=0.070198 lr=3.00e-04
+    Epoch   9/100 | train=0.037050 val=0.071256 lr=1.50e-04
+    Epoch  10/100 | train=0.036807 val=0.071690 lr=1.50e-04
+    Epoch  11/100 | train=0.036812 val=0.071942 lr=1.50e-04
+    Epoch  12/100 | train=0.036820 val=0.071472 lr=1.50e-04
+    Epoch  13/100 | train=0.036800 val=0.071516 lr=1.50e-04
+    Epoch  14/100 | train=0.036668 val=0.072981 lr=1.50e-04
+    Epoch  15/100 | train=0.036695 val=0.070764 lr=7.50e-05
+    Epoch  16/100 | train=0.036508 val=0.070964 lr=7.50e-05
+    Epoch  17/100 | train=0.036522 val=0.071387 lr=7.50e-05
+    Epoch  18/100 | train=0.036495 val=0.071209 lr=7.50e-05
+    Early stopping at epoch 18 (best = 3)
+    -> val RMSE=0.3066 (base 0.3478) | test RMSE=0.1741 (base 0.2065) R2=-2.6035 | improved 2/5
+
+  --- Mamba (SSM) (30,770 parameters) ---
+    Epoch   1/100 | train=0.061899 val=0.071986 lr=3.00e-04 *
+    Epoch   2/100 | train=0.038005 val=0.072515 lr=3.00e-04
+    Epoch   3/100 | train=0.037716 val=0.072179 lr=3.00e-04
+    Epoch   4/100 | train=0.037358 val=0.071200 lr=3.00e-04 *
+    Epoch   5/100 | train=0.037276 val=0.071297 lr=3.00e-04
+    Epoch   6/100 | train=0.037092 val=0.070326 lr=3.00e-04 *
+    Epoch   7/100 | train=0.037073 val=0.072546 lr=3.00e-04
+    Epoch   8/100 | train=0.037025 val=0.072656 lr=3.00e-04
+    Epoch   9/100 | train=0.036873 val=0.070113 lr=3.00e-04 *
+    Epoch  10/100 | train=0.036817 val=0.069468 lr=3.00e-04 *
+    Epoch  11/100 | train=0.036826 val=0.070841 lr=3.00e-04
+    Epoch  12/100 | train=0.036681 val=0.071152 lr=3.00e-04
+    Epoch  13/100 | train=0.036716 val=0.071654 lr=3.00e-04
+    Epoch  14/100 | train=0.036678 val=0.070184 lr=3.00e-04
+    Epoch  15/100 | train=0.036608 val=0.072127 lr=3.00e-04
+    Epoch  16/100 | train=0.036550 val=0.070982 lr=1.50e-04
+    Epoch  17/100 | train=0.036343 val=0.069708 lr=1.50e-04
+    Epoch  18/100 | train=0.036242 val=0.070499 lr=1.50e-04
+    Epoch  19/100 | train=0.036136 val=0.071327 lr=1.50e-04
+    Epoch  20/100 | train=0.035997 val=0.069453 lr=1.50e-04 *
+    Epoch  21/100 | train=0.035863 val=0.071227 lr=1.50e-04
+    Epoch  22/100 | train=0.035645 val=0.069792 lr=1.50e-04
+    Epoch  23/100 | train=0.035316 val=0.067637 lr=1.50e-04 *
+    Epoch  24/100 | train=0.034620 val=0.065710 lr=1.50e-04 *
+    Epoch  25/100 | train=0.034225 val=0.064478 lr=1.50e-04 *
+    Epoch  26/100 | train=0.033842 val=0.061817 lr=1.50e-04 *
+    Epoch  27/100 | train=0.033719 val=0.063743 lr=1.50e-04
+    Epoch  28/100 | train=0.033560 val=0.062437 lr=1.50e-04
+    Epoch  29/100 | train=0.033410 val=0.061324 lr=1.50e-04 *
+    Epoch  30/100 | train=0.033238 val=0.061408 lr=1.50e-04
+    Epoch  31/100 | train=0.033166 val=0.061636 lr=1.50e-04
+    Epoch  32/100 | train=0.032985 val=0.060497 lr=1.50e-04 *
+    Epoch  33/100 | train=0.032935 val=0.059691 lr=1.50e-04 *
+    Epoch  34/100 | train=0.032899 val=0.059148 lr=1.50e-04 *
+    Epoch  35/100 | train=0.032763 val=0.059014 lr=1.50e-04 *
+    Epoch  36/100 | train=0.032543 val=0.059531 lr=1.50e-04
+    Epoch  37/100 | train=0.032433 val=0.061224 lr=1.50e-04
+    Epoch  38/100 | train=0.032380 val=0.059700 lr=1.50e-04
+    Epoch  39/100 | train=0.032311 val=0.060767 lr=1.50e-04
+    Epoch  40/100 | train=0.032203 val=0.059178 lr=1.50e-04
+    Epoch  41/100 | train=0.032114 val=0.058456 lr=1.50e-04 *
+    Epoch  42/100 | train=0.032071 val=0.058382 lr=1.50e-04 *
+    Epoch  43/100 | train=0.031985 val=0.058540 lr=1.50e-04
+    Epoch  44/100 | train=0.031947 val=0.057260 lr=1.50e-04 *
+    Epoch  45/100 | train=0.031695 val=0.057757 lr=1.50e-04
+    Epoch  46/100 | train=0.031726 val=0.056844 lr=1.50e-04 *
+    Epoch  47/100 | train=0.031614 val=0.057337 lr=1.50e-04
+    Epoch  48/100 | train=0.031519 val=0.057191 lr=1.50e-04
+    Epoch  49/100 | train=0.031518 val=0.061069 lr=1.50e-04
+    Epoch  50/100 | train=0.031381 val=0.058337 lr=1.50e-04
+    Epoch  51/100 | train=0.031264 val=0.059365 lr=1.50e-04
+    Epoch  52/100 | train=0.031331 val=0.057805 lr=7.50e-05
+    Epoch  53/100 | train=0.030872 val=0.059690 lr=7.50e-05
+    Epoch  54/100 | train=0.030839 val=0.058445 lr=7.50e-05
+    Epoch  55/100 | train=0.030806 val=0.058406 lr=7.50e-05
+    Epoch  56/100 | train=0.030782 val=0.056876 lr=7.50e-05
+    Epoch  57/100 | train=0.030565 val=0.059734 lr=7.50e-05
+    Epoch  58/100 | train=0.030519 val=0.059538 lr=3.75e-05
+    Epoch  59/100 | train=0.030293 val=0.059391 lr=3.75e-05
+    Epoch  60/100 | train=0.030219 val=0.060018 lr=3.75e-05
+    Epoch  61/100 | train=0.030040 val=0.060711 lr=3.75e-05
+    Early stopping at epoch 61 (best = 46)
+    -> val RMSE=0.2684 (base 0.3478) | test RMSE=0.1579 (base 0.2065) R2=-1.1228 | improved 3/5
+
+  --- PINN (40,132 parameters) ---
+    Epoch   1/100 | train=0.041507 val=0.074042 lr=3.00e-04 *
+    Epoch   2/100 | train=0.038060 val=0.078348 lr=3.00e-04
+    Epoch   3/100 | train=0.037724 val=0.076733 lr=3.00e-04
+    Epoch   4/100 | train=0.037493 val=0.073177 lr=3.00e-04 *
+    Epoch   5/100 | train=0.037312 val=0.071438 lr=3.00e-04 *
+    Epoch   6/100 | train=0.037215 val=0.071329 lr=3.00e-04 *
+    Epoch   7/100 | train=0.036627 val=0.073589 lr=3.00e-04
+    Epoch   8/100 | train=0.035891 val=0.068703 lr=3.00e-04 *
+    Epoch   9/100 | train=0.035463 val=0.068554 lr=3.00e-04 *
+    Epoch  10/100 | train=0.035322 val=0.069186 lr=3.00e-04
+    Epoch  11/100 | train=0.035030 val=0.068821 lr=3.00e-04
+    Epoch  12/100 | train=0.035000 val=0.072342 lr=3.00e-04
+    Epoch  13/100 | train=0.034797 val=0.067480 lr=3.00e-04 *
+    Epoch  14/100 | train=0.034604 val=0.067677 lr=3.00e-04
+    Epoch  15/100 | train=0.034546 val=0.066502 lr=3.00e-04 *
+    Epoch  16/100 | train=0.034299 val=0.065778 lr=3.00e-04 *
+    Epoch  17/100 | train=0.034021 val=0.064022 lr=3.00e-04 *
+    Epoch  18/100 | train=0.033700 val=0.062612 lr=3.00e-04 *
+    Epoch  19/100 | train=0.033270 val=0.062582 lr=3.00e-04 *
+    Epoch  20/100 | train=0.033045 val=0.057292 lr=3.00e-04 *
+    Epoch  21/100 | train=0.032689 val=0.060409 lr=3.00e-04
+    Epoch  22/100 | train=0.032382 val=0.061660 lr=3.00e-04
+    Epoch  23/100 | train=0.031957 val=0.064043 lr=3.00e-04
+    Epoch  24/100 | train=0.031754 val=0.057451 lr=3.00e-04
+    Epoch  25/100 | train=0.030978 val=0.059959 lr=3.00e-04
+    Epoch  26/100 | train=0.031577 val=0.058931 lr=1.50e-04
+    Epoch  27/100 | train=0.031746 val=0.055721 lr=1.50e-04 *
+    Epoch  28/100 | train=0.031398 val=0.055947 lr=1.50e-04
+    Epoch  29/100 | train=0.031366 val=0.057591 lr=1.50e-04
+    Epoch  30/100 | train=0.031081 val=0.057374 lr=1.50e-04
+    Epoch  31/100 | train=0.030079 val=0.060645 lr=1.50e-04
+    Epoch  32/100 | train=0.029037 val=0.061522 lr=1.50e-04
+    Epoch  33/100 | train=0.028664 val=0.063448 lr=7.50e-05
+    Epoch  34/100 | train=0.027512 val=0.062655 lr=7.50e-05
+    Epoch  35/100 | train=0.027136 val=0.064506 lr=7.50e-05
+    Epoch  36/100 | train=0.026785 val=0.064693 lr=7.50e-05
+    Epoch  37/100 | train=0.026481 val=0.064403 lr=7.50e-05
+    Epoch  38/100 | train=0.026343 val=0.065146 lr=7.50e-05
+    Epoch  39/100 | train=0.026265 val=0.063983 lr=3.75e-05
+    Epoch  40/100 | train=0.025948 val=0.064448 lr=3.75e-05
+    Epoch  41/100 | train=0.025891 val=0.064919 lr=3.75e-05
+    Epoch  42/100 | train=0.025828 val=0.064561 lr=3.75e-05
+    Early stopping at epoch 42 (best = 27)
+    -> val RMSE=0.2672 (base 0.3478) | test RMSE=0.1611 (base 0.2065) R2=-1.3700 | improved 3/5
+
+  Writing comparison plots...
+
+======================================================================
+FOLD  test=4th_Valid  val=1st_Comp
+  train sessions : 2nd_Comp, 3rd_Base, 5th_Comp (24 files)
+  val   session  : 1st_Comp (5 files)
+  test  session  : 4th_Valid (13 files)
+======================================================================
+Fitting base model on training sessions...
+  TANH gain=3.9862 slope=0.5888  (cost=697105.1934)
+  test session gains: min=0.2768 max=0.7877 mean=0.4657
+Building windows (shared by all models)...
+  train: (31369, 100, 2)
+  val: (6877, 100, 2)
+
+  --- Conv-BiLSTM-Transformer (78,417 parameters) ---
+    Epoch   1/100 | train=0.056167 val=0.019361 lr=2.94e-04 *
+    Epoch   2/100 | train=0.041454 val=0.017216 lr=3.00e-04 *
+    Epoch   3/100 | train=0.040509 val=0.017820 lr=3.00e-04
+    Epoch   4/100 | train=0.039947 val=0.018263 lr=3.00e-04
+    Epoch   5/100 | train=0.039510 val=0.018134 lr=3.00e-04
+    Epoch   6/100 | train=0.039260 val=0.017364 lr=3.00e-04
+    Epoch   7/100 | train=0.039072 val=0.017406 lr=3.00e-04
+    Epoch   8/100 | train=0.038756 val=0.017555 lr=1.50e-04
+    Epoch   9/100 | train=0.037970 val=0.017799 lr=1.50e-04
+    Epoch  10/100 | train=0.037671 val=0.017291 lr=1.50e-04
+    Epoch  11/100 | train=0.037478 val=0.017424 lr=1.50e-04
+    Epoch  12/100 | train=0.037332 val=0.017345 lr=1.50e-04
+    Epoch  13/100 | train=0.036923 val=0.017581 lr=1.50e-04
+    Epoch  14/100 | train=0.036635 val=0.017381 lr=7.50e-05
+    Epoch  15/100 | train=0.036057 val=0.017895 lr=7.50e-05
+    Epoch  16/100 | train=0.035783 val=0.017883 lr=7.50e-05
+    Epoch  17/100 | train=0.035174 val=0.016967 lr=7.50e-05 *
+    Epoch  18/100 | train=0.035203 val=0.017744 lr=7.50e-05
+    Epoch  19/100 | train=0.034404 val=0.018196 lr=7.50e-05
+    Epoch  20/100 | train=0.033776 val=0.018227 lr=7.50e-05
+    Epoch  21/100 | train=0.032679 val=0.018717 lr=7.50e-05
+    Epoch  22/100 | train=0.033486 val=0.017923 lr=7.50e-05
+    Epoch  23/100 | train=0.035299 val=0.018223 lr=3.75e-05
+    Epoch  24/100 | train=0.034514 val=0.018553 lr=3.75e-05
+    Epoch  25/100 | train=0.034099 val=0.018696 lr=3.75e-05
+    Epoch  26/100 | train=0.033986 val=0.018625 lr=3.75e-05
+    Epoch  27/100 | train=0.033752 val=0.018821 lr=3.75e-05
+    Epoch  28/100 | train=0.033789 val=0.018790 lr=3.75e-05
+    Epoch  29/100 | train=0.033676 val=0.018502 lr=1.87e-05
+    Epoch  30/100 | train=0.033357 val=0.018862 lr=1.87e-05
+    Epoch  31/100 | train=0.033206 val=0.018773 lr=1.87e-05
+    Epoch  32/100 | train=0.033163 val=0.018728 lr=1.87e-05
+    Early stopping at epoch 32 (best = 17)
+    -> val RMSE=0.4683 (base 0.5319) | test RMSE=0.2698 (base 0.3481) R2=-1.0488 | improved 9/13
+
+  --- Conv-BiLSTM (155,297 parameters) ---
+    Epoch   1/100 | train=0.051486 val=0.020339 lr=2.94e-04 *
+    Epoch   2/100 | train=0.042101 val=0.019340 lr=3.00e-04 *
+    Epoch   3/100 | train=0.040494 val=0.017476 lr=3.00e-04 *
+    Epoch   4/100 | train=0.039977 val=0.020518 lr=3.00e-04
+    Epoch   5/100 | train=0.039623 val=0.018178 lr=3.00e-04
+    Epoch   6/100 | train=0.039423 val=0.017753 lr=3.00e-04
+    Epoch   7/100 | train=0.039151 val=0.019495 lr=3.00e-04
+    Epoch   8/100 | train=0.039114 val=0.018879 lr=3.00e-04
+    Epoch   9/100 | train=0.039212 val=0.019840 lr=1.50e-04
+    Epoch  10/100 | train=0.037967 val=0.019175 lr=1.50e-04
+    Epoch  11/100 | train=0.037557 val=0.018820 lr=1.50e-04
+    Epoch  12/100 | train=0.036938 val=0.019062 lr=1.50e-04
+    Epoch  13/100 | train=0.036411 val=0.019587 lr=1.50e-04
+    Epoch  14/100 | train=0.036310 val=0.019768 lr=1.50e-04
+    Epoch  15/100 | train=0.035891 val=0.019096 lr=7.50e-05
+    Epoch  16/100 | train=0.035115 val=0.019061 lr=7.50e-05
+    Epoch  17/100 | train=0.034892 val=0.019106 lr=7.50e-05
+    Epoch  18/100 | train=0.034701 val=0.018656 lr=7.50e-05
+    Early stopping at epoch 18 (best = 3)
+    -> val RMSE=0.4842 (base 0.5319) | test RMSE=0.2694 (base 0.3481) R2=-0.7995 | improved 11/13
+
+  --- LSTM (114,657 parameters) ---
+    Epoch   1/100 | train=0.050892 val=0.020352 lr=2.94e-04 *
+    Epoch   2/100 | train=0.047022 val=0.018796 lr=3.00e-04 *
+    Epoch   3/100 | train=0.046306 val=0.018997 lr=3.00e-04
+    Epoch   4/100 | train=0.045913 val=0.019160 lr=3.00e-04
+    Epoch   5/100 | train=0.045667 val=0.019148 lr=3.00e-04
+    Epoch   6/100 | train=0.045483 val=0.019328 lr=3.00e-04
+    Epoch   7/100 | train=0.045511 val=0.020008 lr=3.00e-04
+    Epoch   8/100 | train=0.045534 val=0.020050 lr=1.50e-04
+    Epoch   9/100 | train=0.045081 val=0.020031 lr=1.50e-04
+    Epoch  10/100 | train=0.045103 val=0.019565 lr=1.50e-04
+    Epoch  11/100 | train=0.045122 val=0.019433 lr=1.50e-04
+    Epoch  12/100 | train=0.044924 val=0.019617 lr=1.50e-04
+    Epoch  13/100 | train=0.044648 val=0.019766 lr=1.50e-04
+    Epoch  14/100 | train=0.044576 val=0.019830 lr=7.50e-05
+    Epoch  15/100 | train=0.043721 val=0.020064 lr=7.50e-05
+    Epoch  16/100 | train=0.041981 val=0.020725 lr=7.50e-05
+    Epoch  17/100 | train=0.041712 val=0.020008 lr=7.50e-05
+    Early stopping at epoch 17 (best = 2)
+    -> val RMSE=0.4980 (base 0.5319) | test RMSE=0.3107 (base 0.3481) R2=-0.5614 | improved 8/13
+
+  --- Transformer (101,793 parameters) ---
+    Epoch   1/100 | train=0.050455 val=0.018064 lr=2.94e-04 *
+    Epoch   2/100 | train=0.043839 val=0.017399 lr=3.00e-04 *
+    Epoch   3/100 | train=0.041678 val=0.015716 lr=3.00e-04 *
+    Epoch   4/100 | train=0.040664 val=0.017310 lr=3.00e-04
+    Epoch   5/100 | train=0.040253 val=0.017634 lr=3.00e-04
+    Epoch   6/100 | train=0.040017 val=0.017000 lr=3.00e-04
+    Epoch   7/100 | train=0.039571 val=0.017656 lr=3.00e-04
+    Epoch   8/100 | train=0.039488 val=0.017864 lr=3.00e-04
+    Epoch   9/100 | train=0.039207 val=0.017439 lr=1.50e-04
+    Epoch  10/100 | train=0.038156 val=0.017440 lr=1.50e-04
+    Epoch  11/100 | train=0.038115 val=0.017342 lr=1.50e-04
+    Epoch  12/100 | train=0.038329 val=0.017520 lr=1.50e-04
+    Epoch  13/100 | train=0.037342 val=0.017139 lr=1.50e-04
+    Epoch  14/100 | train=0.037276 val=0.017133 lr=1.50e-04
+    Epoch  15/100 | train=0.037327 val=0.017089 lr=7.50e-05
+    Epoch  16/100 | train=0.039177 val=0.016896 lr=7.50e-05
+    Epoch  17/100 | train=0.038695 val=0.016866 lr=7.50e-05
+    Epoch  18/100 | train=0.036611 val=0.017034 lr=7.50e-05
+    Early stopping at epoch 18 (best = 3)
+    -> val RMSE=0.4554 (base 0.5319) | test RMSE=0.2768 (base 0.3481) R2=-1.0288 | improved 11/13
+
+  --- Synergy-SSM (70,481 parameters) ---
+    Epoch   1/100 | train=0.049554 val=0.019103 lr=2.94e-04 *
+    Epoch   2/100 | train=0.046781 val=0.019344 lr=3.00e-04
+    Epoch   3/100 | train=0.046329 val=0.018880 lr=3.00e-04 *
+    Epoch   4/100 | train=0.045896 val=0.017945 lr=3.00e-04 *
+    Epoch   5/100 | train=0.045461 val=0.018120 lr=3.00e-04
+    Epoch   6/100 | train=0.045349 val=0.019284 lr=3.00e-04
+    Epoch   7/100 | train=0.044985 val=0.019082 lr=3.00e-04
+    Epoch   8/100 | train=0.045020 val=0.019445 lr=3.00e-04
+    Epoch   9/100 | train=0.044866 val=0.018164 lr=3.00e-04
+    Epoch  10/100 | train=0.044833 val=0.019774 lr=1.50e-04
+    Epoch  11/100 | train=0.044300 val=0.019624 lr=1.50e-04
+    Epoch  12/100 | train=0.044358 val=0.019730 lr=1.50e-04
+    Epoch  13/100 | train=0.044185 val=0.019175 lr=1.50e-04
+    Epoch  14/100 | train=0.044269 val=0.019289 lr=1.50e-04
+    Epoch  15/100 | train=0.043679 val=0.019958 lr=1.50e-04
+    Epoch  16/100 | train=0.043106 val=0.019387 lr=7.50e-05
+    Epoch  17/100 | train=0.042388 val=0.019516 lr=7.50e-05
+    Epoch  18/100 | train=0.041890 val=0.020459 lr=7.50e-05
+    Epoch  19/100 | train=0.041723 val=0.020647 lr=7.50e-05
+    Early stopping at epoch 19 (best = 4)
+    -> val RMSE=0.4917 (base 0.5319) | test RMSE=0.3055 (base 0.3481) R2=-0.7573 | improved 8/13
+
+  --- Mamba (SSM) (30,770 parameters) ---
+    Epoch   1/100 | train=0.072315 val=0.019415 lr=2.94e-04 *
+    Epoch   2/100 | train=0.046318 val=0.019048 lr=3.00e-04 *
+    Epoch   3/100 | train=0.045620 val=0.019131 lr=3.00e-04
+    Epoch   4/100 | train=0.045174 val=0.020497 lr=3.00e-04
+    Epoch   5/100 | train=0.044876 val=0.019544 lr=3.00e-04
+    Epoch   6/100 | train=0.044842 val=0.019182 lr=3.00e-04
+    Epoch   7/100 | train=0.044641 val=0.019220 lr=3.00e-04
+    Epoch   8/100 | train=0.044439 val=0.020996 lr=1.50e-04
+    Epoch   9/100 | train=0.044145 val=0.020582 lr=1.50e-04
+    Epoch  10/100 | train=0.044020 val=0.021393 lr=1.50e-04
+    Epoch  11/100 | train=0.044061 val=0.020602 lr=1.50e-04
+    Epoch  12/100 | train=0.044013 val=0.021173 lr=1.50e-04
+    Epoch  13/100 | train=0.043842 val=0.020714 lr=1.50e-04
+    Epoch  14/100 | train=0.043660 val=0.020932 lr=7.50e-05
+    Epoch  15/100 | train=0.042993 val=0.022437 lr=7.50e-05
+    Epoch  16/100 | train=0.042323 val=0.021887 lr=7.50e-05
+    Epoch  17/100 | train=0.041673 val=0.021458 lr=7.50e-05
+    Early stopping at epoch 17 (best = 2)
+    -> val RMSE=0.5080 (base 0.5319) | test RMSE=0.3130 (base 0.3481) R2=-0.6862 | improved 6/13
+
+  --- PINN (40,132 parameters) ---
+    Epoch   1/100 | train=0.051213 val=0.020571 lr=2.94e-04 *
+    Epoch   2/100 | train=0.046193 val=0.019114 lr=3.00e-04 *
+    Epoch   3/100 | train=0.045947 val=0.018849 lr=3.00e-04 *
+    Epoch   4/100 | train=0.045477 val=0.019009 lr=3.00e-04
+    Epoch   5/100 | train=0.045321 val=0.018936 lr=3.00e-04
+    Epoch   6/100 | train=0.045125 val=0.018532 lr=3.00e-04 *
+    Epoch   7/100 | train=0.044606 val=0.017241 lr=3.00e-04 *
+    Epoch   8/100 | train=0.043384 val=0.018383 lr=3.00e-04
+    Epoch   9/100 | train=0.042902 val=0.018874 lr=3.00e-04
+    Epoch  10/100 | train=0.042514 val=0.017278 lr=3.00e-04
+    Epoch  11/100 | train=0.042335 val=0.017055 lr=3.00e-04 *
+    Epoch  12/100 | train=0.041762 val=0.017975 lr=3.00e-04
+    Epoch  13/100 | train=0.041307 val=0.016913 lr=3.00e-04 *
+    Epoch  14/100 | train=0.040712 val=0.016902 lr=3.00e-04 *
+    Epoch  15/100 | train=0.040196 val=0.017600 lr=3.00e-04
+    Epoch  16/100 | train=0.039713 val=0.016690 lr=3.00e-04 *
+    Epoch  17/100 | train=0.039347 val=0.017818 lr=3.00e-04
+    Epoch  18/100 | train=0.039006 val=0.017063 lr=3.00e-04
+    Epoch  19/100 | train=0.038737 val=0.019139 lr=3.00e-04
+    Epoch  20/100 | train=0.038551 val=0.018033 lr=3.00e-04
+    Epoch  21/100 | train=0.038356 val=0.018637 lr=3.00e-04
+    Epoch  22/100 | train=0.038171 val=0.018240 lr=1.50e-04
+    Epoch  23/100 | train=0.037453 val=0.017677 lr=1.50e-04
+    Epoch  24/100 | train=0.037205 val=0.018057 lr=1.50e-04
+    Epoch  25/100 | train=0.036867 val=0.018047 lr=1.50e-04
+    Epoch  26/100 | train=0.036602 val=0.017719 lr=1.50e-04
+    Epoch  27/100 | train=0.036458 val=0.018924 lr=1.50e-04
+    Epoch  28/100 | train=0.036209 val=0.019486 lr=7.50e-05
+    Epoch  29/100 | train=0.035764 val=0.020260 lr=7.50e-05
+    Epoch  30/100 | train=0.035610 val=0.019543 lr=7.50e-05
+    Epoch  31/100 | train=0.035484 val=0.019509 lr=7.50e-05
+    Early stopping at epoch 31 (best = 16)
+    -> val RMSE=0.4606 (base 0.5319) | test RMSE=0.2830 (base 0.3481) R2=-0.6046 | improved 11/13
+
+  Writing comparison plots...
+
+======================================================================
+MODEL COMPARISON  (mean over all test files, per held-out day)
+======================================================================
+Test_Session             1st_Comp  2nd_Comp  3rd_Base  4th_Valid
+Model_Name                                                      
+Conv-BiLSTM                0.4832    0.9248    0.1513     0.2694
+Conv-BiLSTM-Transformer    0.4934    0.9218    0.1520     0.2698
+LSTM                       0.4855    0.9380    0.1629     0.3107
+Mamba (SSM)                0.4997    0.9350    0.1579     0.3130
+PINN                       0.4921    0.9511    0.1611     0.2830
+Synergy-SSM                0.4919    0.9371    0.1741     0.3055
+Transformer                0.4702    0.9099    0.1580     0.2768
+EDM base model             0.5320    1.1077    0.2065     0.3481
+
+======================================================================
+OVERALL  (mean +- std across folds)
+======================================================================
+                         RMSE_mean  RMSE_std  R2_mean  MAE_mean  Params
+Model_Name                                                             
+Transformer                 0.4665    0.4678  -0.7599    0.3408  101793
+Conv-BiLSTM                 0.4687    0.4648  -0.6179    0.3438  155297
+Conv-BiLSTM-Transformer     0.4697    0.4502  -0.8795    0.3367   78417
+PINN                        0.4845    0.4897  -0.5084    0.3510   40132
+LSTM                        0.4913    0.4716  -0.4513    0.3563  114657
+Synergy-SSM                 0.4917    0.4724  -0.8733    0.3607   70481
+Mamba (SSM)                 0.4929    0.4633  -0.6425    0.3630   30770
+
+EDM base model     RMSE=0.5683  R2=-3.0800
+
+Files where a model beat the base model: 164/224
+
+Combined results CSV : /scratch/mi23/nuwan/Japan/EDM_Error_Compensate/mycode/Estimation/lodo/model_comparison.csv
+Plots and per-fold outputs: /scratch/mi23/nuwan/Japan/EDM_Error_Compensate/mycode/Estimation/lodo
